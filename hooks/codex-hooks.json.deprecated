@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MH=/Users/earan/Documents/Codex/2026-08-10/memory-hub; bash \"$MH/scripts/inject.sh\" 2>/dev/null | head -60 || true",
+            "timeout": 15,
+            "statusMessage": "Loading memory-hub context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MH=/Users/earan/Documents/Codex/2026-08-10/memory-hub; bash \"$MH/scripts/capture.sh\" >/dev/null 2>&1 || true; LATEST=$(ls -t \"$MH\"/staging/observations-*.jsonl 2>/dev/null | head -1 || true); if [ -n \"$LATEST\" ]; then bash \"$MH/scripts/distill.sh\" \"$LATEST\" >/dev/null 2>&1 || true; fi",
+            "timeout": 120,
+            "statusMessage": "memory-hub: 采集并蒸馏本次会话"
+          }
+        ]
+      }
+    ]
+  }
+}
