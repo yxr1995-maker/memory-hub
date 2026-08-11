@@ -33,7 +33,7 @@
 | `capture` | 解析 `~/.codex/sessions/**/*.jsonl` → `staging/observations-*.jsonl`。自动兼容新旧会话格式；用户消息剔除系统注入噪音（`<recommended_plugins>/<environment_context>` 等）；提取 tool 事件为 `type=tool` 观察；增量游标 `staging/.since` + 内容去重 `staging/.seen`。`--all` 全量 / `--since <ms>` / `--watch` 每 60 秒循环 / `--source claude-mem` 旧 SQLite 兼容  / `--source claude-code` 解析 Claude Code 会话 / `--source workbuddy` 解析 WorkBuddy 会话（`~/.workbuddy/projects`，id 前缀 `w`，独立游标）|
 | `distill [--llm]` | 按 project 分组生成合规 wiki 页 → `staging/pages/`。frontmatter 含 `title/type/created/updated/abstract/tags/sources/confidence/contested/status/last_verified`；type 智能映射（决策→decision、失败→failure、对比→comparison、默认 concept）；正文 L0 摘要 + L1 概述 + L2 明细（>60 条自动分页）；AI 摘要标 ⚠️待核实；出链 `[[index]] [[log]]` + 同项目分页互链 |
 | `index [--with-raw]` | 把 ~/llm-wiki 索引进 SQLite FTS5（trigram 中文分词）→ `~/.memory-hub/index.db`（3663 页 ~3 分钟，全量重建） |
-| `ask "问题" [--top N]` | 知识库问答（替代 gbrain ask）：FTS5 检索 + 免费模型生成（默认 openrouter/openrouter/free） |
+| `ask "问题" [--top N]` | 知识库问答（替代 gbrain ask）：FTS5 检索 + 免费模型生成（默认 sensenova/sensenova-6.8-flash-lite） |
 | `publish [--apply]` | `staging/pages` → `~/llm-wiki` 按 type 映射目录（decision→decisions/ 等）；默认 dry-run；frontmatter 五字段校验；永不覆盖已存在页面；`--apply` 更新 index.md/log.md（log 防重复） |
 | `search "词" [--top N] [--raw] [--all] [--gbrain]` | rg 全文检索（默认排除 raw/_legacy-para）；`--gbrain` 优先 gbrain 混合检索，失败回退 rg |
 | `inject [--apply --file X]` | 记忆上下文注入（对齐 claude-mem AGENTS.md 注入）：默认输出 Markdown 到 stdout（知识库最近 5 页 + 最新观察 10 条 + 统计）；`--apply` 写入指定 AGENTS.md 的 MARKER 区段，重复运行只替换区段 |
@@ -57,7 +57,7 @@
 - macOS bash 3.2、`jq`、`rg`（必选）
 - `curl`（可选，`--llm` 摘要用）
 - `sqlite3`（可选，`--source claude-mem` 兼容用）
-- 本地 LLM 代理 `127.0.0.1:10100`（可选，`--llm` 默认用 combo/freelancer 免费模型，可用 `CLAUDE_MEM_MODEL` 环境变量覆盖；失败自动降级为统计描述）
+- 本地 LLM 代理 `127.0.0.1:10100`（可选，`--llm` 默认用 sensenova/sensenova-6.8-flash-lite 免费模型（稳定），可用 `CLAUDE_MEM_MODEL` 环境变量覆盖；失败自动降级为统计描述）
 - `gbrain`（可选，`search --gbrain` 混合检索用）
 
 ## 安全边界

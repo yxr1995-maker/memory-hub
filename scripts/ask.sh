@@ -5,7 +5,7 @@ set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB="${MEMORY_HUB_DATA:-$HOME/.memory-hub}/index.db"
-MODEL="${CLAUDE_MEM_MODEL:-openrouter/openrouter/free}"
+MODEL="${CLAUDE_MEM_MODEL:-sensenova/sensenova-6.8-flash-lite}"
 PROXY="${OPENCODEX_URL:-http://127.0.0.1:10100/v1}"
 TOP=5
 EXPAND=0

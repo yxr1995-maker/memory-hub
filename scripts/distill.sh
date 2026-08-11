@@ -7,7 +7,7 @@ HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING="$HUB_DIR/staging"
 PAGES_DIR="$STAGING/pages"
 LLM=0
-MODEL="${CLAUDE_MEM_MODEL:-combo/freelancer}"
+MODEL="${CLAUDE_MEM_MODEL:-sensenova/sensenova-6.8-flash-lite}"
 PROXY="${OPENCODEX_URL:-http://127.0.0.1:10100/v1}"
 
 # YAML 单引号标量转义：' → ''，换行 → 空格（防止 title/abstract 含单引号或换行破坏 frontmatter）
@@ -52,8 +52,9 @@ llm_summary() {
     --arg sys '你是记忆蒸馏器。把下面 claude-mem 观察记录压缩成 3-5 条要点，中文，每条以 "- " 开头。只基于给定内容，不要编造。' \
     --arg content "$content" \
     '{model:$model, messages:[{role:"system",content:$sys},{role:"user",content:$content}], temperature:0.2}')"
+  # 错误响应检测：限流/错误（.error 字段或限流关键词）返回空，触发调用方降级为统计描述，避免把错误文本写入页面
   curl -s --max-time 30 -H 'Content-Type: application/json' -d "$payload" "$PROXY/chat/completions" \
-    | jq -r '.choices[0].message.content // empty' 2>/dev/null || true
+    | jq -r 'if .error then "" elif ((.choices[0].message.content // "") | test("prevent abuse|rate.?limit|Rate limit|insufficient|额度|限流")) then "" else (.choices[0].message.content // "") end' 2>/dev/null || true
 }
 
 PAGES=0
