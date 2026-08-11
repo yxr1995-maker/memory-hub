@@ -50,7 +50,7 @@ OUT="$(mktemp)"
   echo "## 最近采集观察（staging）"
   LATEST="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || true)"
   if [[ -n "${LATEST:-}" ]]; then
-    jq -sr '.[0:10][] | "- [\(.id)] \(.text | .[0:100])"' "$LATEST" 2>/dev/null | sed 's/\\n/ /g'
+    jq -sr '.[0:10][] | "- [\(.id // "rt")] \(.text | .[0:100])"' "$LATEST" 2>/dev/null | sed 's/\\n/ /g'
   else
     echo "- 暂无（先运行 capture）"
   fi
