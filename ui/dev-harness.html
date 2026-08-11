@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Memory Hub Admin — Dev Harness</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5e5e5;background:#111}
+#bar{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:10px;padding:8px 14px;background:#171717;border-bottom:1px solid #333;flex-wrap:wrap}
+#bar label,#bar span{white-space:nowrap;color:#ccc}
+#bar input[type=text]{width:280px;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#1e1e1e;color:#eee}
+#bar button,#bar label.chk{padding:6px 12px;border-radius:8px;border:1px solid #555;background:#2a2a2a;color:#eee;cursor:pointer;user-select:none}
+#bar button:hover{background:#3a3a3a}
+#bar button.dis{opacity:.4;cursor:not-allowed}
+#bar .sep{width:1px;height:22px;background:#444;margin:0 4px}
+#status{margin-left:auto;font-size:12px;color:#999}
+#status.ok{color:#7cc67c}
+#status.err{color:#f87171}
+#stage{display:flex;height:calc(100vh - 44px)}
+#sidebar{width:260px;background:#1e1e1e;border-right:1px solid #333;padding:12px 0}
+#sidebar .item{padding:8px 16px;color:#d4d4d4;cursor:pointer}
+#sidebar .item:hover{background:#2a2a2a}
+#sidebar .item.active{background:#094771;color:#fff}
+#main{flex:1;padding:24px;overflow:auto}
+#main h1{font-size:20px;font-weight:600;margin-bottom:8px}
+#main p{color:#b5b5b5;margin-bottom:8px}
+#main code{background:#2a2a2a;padding:1px 5px;border-radius:4px;color:#f0a674}
+#logs{position:fixed;left:0;right:0;bottom:0;height:140px;background:#0e0e0e;border-top:1px solid #333;padding:8px 12px;overflow:auto;font:12px/1.4 ui-monospace,SFMono-Regular,monospace;color:#888;display:none}
+#logs.on{display:block}
+#logs .e{color:#f87171}
+#logs .w{color:#f0a674}
+#logs .i{color:#a5d6ff}
+#logs .t{color:#666;margin-right:6px}
+#showlogs{position:fixed;right:14px;bottom:14px;z-index:99;padding:6px 10px;border-radius:8px;background:#222;color:#bbb;border:1px solid #444;cursor:pointer;font-size:12px}
+#showlogs.on{display:block}
+</style>
+</head>
+<body>
+<!-- 顶部控制栏：API 地址 + 重载 + 面板控制 + 无侧栏模式开关 -->
+<div id="bar">
+  <label>API
+    <input type="text" id="apiUrl" value="http://127.0.0.1:8787">
+  </label>
+  <button id="btnSave">保存并重载脚本</button>
+  <div class="sep"></div>
+  <button id="btnOpen">打开面板</button>
+  <button id="btnClose">关闭面板</button>
+  <button id="btnDestroy">销毁注入</button>
+  <div class="sep"></div>
+  <label class="chk"><input type="checkbox" id="chkNoSidebar" style="margin-right:4px"> 无侧栏模式</label>
+  <span id="status">检测中…</span>
+</div>
+
+<!-- Codex 布局模拟：左 sidebar + 右主内容 -->
+<div id="stage">
+  <nav id="sidebar" role="navigation" class="sidebar-left">
+    <div class="item active">新聊天</div>
+    <div class="item">历史会话 1</div>
+    <div class="item">历史会话 2</div>
+    <div class="item">历史会话 3</div>
+    <div class="item">Settings / 设置</div>
+  </nav>
+  <div id="main">
+    <h1>Memory Hub Admin — 本地测试页</h1>
+    <p>用 <code>file://</code> 或 <code>python3 -m http.server</code> 打开即可，热加载同目录下 <code>memory-hub-admin.js</code>。</p>
+    <p>左侧 <code>&lt;nav id="sidebar"&gt;</code> 模拟 Codex 侧栏，脚本会自动注入「Memory Hub」入口。</p>
+    <p>勾选「无侧栏模式」后 nav 隐藏，脚本应 10s 后在右下角弹出浮动按钮兜底。</p>
+    <p>控制台 error / uncaught 会同步到页面底部日志区（点右下角「日志」展开）。</p>
+  </div>
+</div>
+
+<button id="showlogs">日志</button>
+<pre id="logs"></pre>
+
+<script>
+  /* 日志钩子：window.onerror + console.error → 底部日志区 */
+  (function(){
+    const logs = document.getElementById('logs');
+    const btn  = document.getElementById('showlogs');
+    function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+    function fmt(t, msg){
+      const ts = new Date(), pad = n=>String(n).padStart(2,'0');
+      const line = document.createElement('div');
+      line.innerHTML = '<span class="t">'+ts.toTimeString().slice(0,8)+'</span><span class="'+t+'">'+escapeHtml(msg)+'</span>';
+      logs.appendChild(line);
+      logs.scrollTop = logs.scrollHeight;
+    }
+    window.onerror = function(msg, src, ln, col, err){
+      fmt('e', (err&&err.stack)? err.stack : (msg+' @ '+src+':'+ln+':'+col));
+      return false;
+    };
+    const _ce = console.error.bind(console);
+    console.error = function(...a){
+      fmt('e', a.map(x=>typeof x==='string'?x:JSON.stringify(x,null,2)).join(' '));
+      _ce(...a);
+    };
+    btn.onclick = ()=>{logs.classList.toggle('on');btn.classList.toggle('on');};
+    fmt('i','dev-harness ready');
+  })();
+
+  /* 控件与句柄检测 */
+  const S = {
+    url:      document.getElementById('apiUrl'),
+    btnSave:  document.getElementById('btnSave'),
+    btnOpen:  document.getElementById('btnOpen'),
+    btnClose: document.getElementById('btnClose'),
+    btnDest:  document.getElementById('btnDestroy'),
+    chk:      document.getElementById('chkNoSidebar'),
+    status:   document.getElementById('status'),
+    sidebar:  document.getElementById('sidebar'),
+    tag:      null
+  };
+  const hub = ()=> window.__memoryHubAdmin || null;
+
+  function refreshStatus(){
+    const h = hub();
+    if(h){
+      S.status.className = 'ok';
+      S.status.textContent = '✓ __memoryHubAdmin ready · v'+(h.version||'?');
+      [S.btnOpen, S.btnClose, S.btnDest].forEach(b=>b.classList.remove('dis'));
+    } else {
+      S.status.className = 'err';
+      S.status.textContent = '✗ __memoryHubAdmin 未就绪';
+      [S.btnOpen, S.btnClose, S.btnDest].forEach(b=>b.classList.add('dis'));
+    }
+  }
+  setInterval(refreshStatus, 800);
+
+  function toast(msg, ok){
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'position:fixed;top:56px;right:24px;z-index:9999;padding:8px 14px;border-radius:8px;background:'+(ok?'#0d3320':'#3d1f1f')+';color:'+(ok?'#7cc67c':'#f87171')+';border:1px solid '+(ok?'#2a4d3a':'#5a2a2a')+';font-size:12px;box-shadow:0 2px 8px #0006';
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 2400);
+  }
+
+  /* 热重载：写 localStorage 后用 ?ts= 戳强制重新加载脚本 */
+  function loadScript(){
+    const old = S.tag; if(old) old.remove();
+    try{ if(hub() && hub().destroy) hub().destroy(); }catch(e){}
+    const s = document.createElement('script');
+    s.id = 'memory-hub-admin';
+    s.src = './memory-hub-admin.js?ts='+Date.now();
+    s.addEventListener('load', ()=>{ refreshStatus(); toast('脚本已加载', true); });
+    s.addEventListener('error', ()=>{ refreshStatus(); toast('脚本加载失败（确认同目录 + http.server？）', false); });
+    document.head.appendChild(s);
+    S.tag = s;
+  }
+
+  S.btnSave.onclick = ()=>{
+    try{ localStorage.setItem('memoryHubAdmin.apiBase', S.url.value.trim()||'http://127.0.0.1:8787'); }catch(e){ toast('localStorage 不可用: '+e, false); return; }
+    loadScript();
+  };
+  S.btnOpen.onclick  = ()=>{ const h=hub(); if(!h){toast('句柄未就绪',false);return;} try{h.open();}catch(e){toast(e.message,false);} };
+  S.btnClose.onclick = ()=>{ const h=hub(); if(!h){toast('句柄未就绪',false);return;} try{h.close();}catch(e){toast(e.message,false);} };
+  S.btnDest.onclick  = ()=>{ const h=hub(); if(!h){toast('句柄未就绪',false);return;} try{h.destroy();refreshStatus();toast('已销毁',true);}catch(e){toast(e.message,false);} };
+
+  S.chk.onchange = ()=>{ S.sidebar.style.display = S.chk.checked ? 'none' : ''; loadScript(); };
+
+  // 启动时以输入框为准写入 localStorage，保证陈旧值（如废弃的 8899）被自动纠正
+  try{ localStorage.setItem('memoryHubAdmin.apiBase', S.url.value.trim()||'http://127.0.0.1:8787'); }catch(e){}
+  loadScript();
+</script>
+</body>
+</html>

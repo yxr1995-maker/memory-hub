@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-12T00:00:00Z",
+  "scripts": [
+    {
+      "id": "memory-hub-admin",
+      "name": "Memory Hub Admin",
+      "description": "memory-hub 可观测面板：agent 调用日志、实时上下文流、Obsidian 原图与内置交互图谱、vault 目录树页面管理、标签与统计，从 Codex 左侧边栏进入",
+      "version": "0.2.0",
+      "author": "memory-hub",
+      "tags": [
+        "memory-hub",
+        "admin",
+        "ui"
+      ],
+      "homepage": "https://github.com/BigPizzaV3/CodexPlusPlusScriptMarket",
+      "script_url": "scripts/memory-hub-admin.js",
+      "sha256": "3b271032c9802e61a153e20c195bca8937846a7113575d0de6551972319eb3a7"
+    }
+  ]
+}

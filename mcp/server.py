@@ -11,6 +11,37 @@ from mcp.server.fastmcp import FastMCP
 HUB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 mcp = FastMCP("memory-hub")
 
+ACCESS_LOG = os.path.join(os.environ.get("MEMORY_HUB_DATA", os.path.expanduser("~/.memory-hub")),
+                          "access.jsonl")
+
+
+def _log(kind: str, query: str, refs: list = None) -> None:
+    """把 agent 的 MCP 调用追加到 access.jsonl（与 REST 服务共用，供管理面板展示）。失败静默。"""
+    import time as _t
+    try:
+        os.makedirs(os.path.dirname(ACCESS_LOG), exist_ok=True)
+        row = {"ts": _t.strftime("%Y-%m-%dT%H:%M:%S"), "src": "mcp",
+               "m": "MCP", "kind": kind, "q": query[:160], "status": 200, "ms": 0}
+        if refs:
+            row["refs"] = refs[:8]
+        with open(ACCESS_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _md_refs(text: str, limit: int = 8) -> list:
+    """从 search/ask 输出解析命中的 wiki 页面路径（[score] path.md 行）。"""
+    import re as _re
+    out = []
+    for m in _re.finditer(r"^\[[^\]]*\]\s+(\S+?\.md)\s*$", text or "", _re.M):
+        p = m.group(1)
+        if p not in out:
+            out.append(p)
+        if len(out) >= limit:
+            break
+    return out
+
 
 def _run(script: str, *args: str, timeout: int = 60) -> str:
     """执行 memory-hub 脚本并返回输出。异常（超时/脚本不存在等）统一捕获返回错误字符串，不崩溃 MCP 工具。"""
@@ -48,7 +79,9 @@ def memory_search(query: str, top: int = 10, expand: bool = False) -> str:
     args = [query[:500], "--top", str(_clamp_top(top))]
     if expand:
         args.append("--expand")
-    return _run("search.sh", *args, timeout=40 if expand else 20)
+    out = _run("search.sh", *args, timeout=40 if expand else 20)
+    _log("search", query, _md_refs(out))
+    return out
 
 
 @mcp.tool()
@@ -60,7 +93,9 @@ def memory_ask(question: str, top: int = 5, expand: bool = False) -> str:
     args = [question[:500], "--top", str(_clamp_top(top))]
     if expand:
         args.append("--expand")
-    return _run("ask.sh", *args, timeout=90)
+    out = _run("ask.sh", *args, timeout=90)
+    _log("ask", question, _md_refs(out))
+    return out
 
 
 @mcp.tool()
@@ -79,7 +114,9 @@ def memory_obs_search(query: str, top: int = 10, project: str = "") -> str:
     args = [query[:500], "--top", str(_clamp_top(top))]
     if project:
         args += ["--project", project]
-    return _run("obs_search.sh", *args, timeout=30)
+    out = _run("obs_search.sh", *args, timeout=30)
+    _log("obs_search", query)
+    return out
 
 
 @mcp.tool()
