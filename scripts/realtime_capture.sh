@@ -52,6 +52,15 @@ NEW="$(tail -c +$((OFFSET + 1)) "$TP" | jq -c --arg proj "$PROJ" '
 _acquire_lock() {
   local tries=0
   while ! mkdir "$LOCKDIR" 2>/dev/null; do
+    # 陈旧锁清理：锁存在超 10 秒视为残留（持有进程被 kill，trap 未触发），强制清除避免采集永久停止
+    if [[ -d "$LOCKDIR" ]]; then
+      local mtime
+      mtime="$(stat -f %m "$LOCKDIR" 2>/dev/null || echo 0)"
+      if [[ $(( $(date +%s) - mtime )) -gt 10 ]]; then
+        rmdir "$LOCKDIR" 2>/dev/null || true
+        continue
+      fi
+    fi
     tries=$((tries + 1))
     [[ $tries -gt 500 ]] && return 1
     sleep 0.01
