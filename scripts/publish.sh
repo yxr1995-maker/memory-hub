@@ -9,6 +9,7 @@ STAGING="$HUB_DIR/staging"
 PAGES_DIR="$STAGING/pages"
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 APPLY=0
+COMMIT=0
 
 # type -> 目录 映射
 type_dir() {
@@ -24,8 +25,9 @@ type_dir() {
 }
 
 usage() {
-  echo "用法: publish.sh [--apply]"
+  echo "用法: publish.sh [--apply] [--commit]"
   echo "  默认 dry-run: 预览待发布页面、frontmatter 校验、目录映射"
+  echo "  --commit: --apply 基础上，在 ~/llm-wiki 中 git add + commit 本次发布内容"
   exit 0
 }
 
@@ -33,6 +35,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=1 ;;
     --dry-run) APPLY=0 ;;
+    --commit) COMMIT=1 ;;
     --help|-h) usage ;;
     *) echo "未知参数: $1" >&2; usage ;;
   esac
@@ -74,7 +77,12 @@ if [[ "$APPLY" == 0 ]]; then
     echo "  + $DIR/$(basename "$f") (type=$T)"
   done
   echo "publish: [dry-run] index.md / log.md 将相应更新"
-  echo "publish: 确认无误后运行: publish.sh --apply（或 memory-hub.sh run --apply）"
+  if [[ "$COMMIT" == 1 ]]; then
+    echo "publish: [dry-run] 将执行 --commit（git add + commit 本次发布内容）"
+    echo "publish: 确认无误后运行: publish.sh --apply --commit"
+  else
+    echo "publish: 确认无误后运行: publish.sh --apply（或 memory-hub.sh run --apply）"
+  fi
   exit 0
 fi
 
@@ -128,3 +136,33 @@ fi
 
 echo "publish: 完成，发布 $COPIED 页; index.md / log.md 已更新"
 echo "publish: gbrain 索引源即 ~/llm-wiki，新页会被自动纳入检索"
+
+# --commit: 在 ~/llm-wiki 中只 add 本次发布涉及的文件，提交归属清楚的 commit
+if [[ "$COMMIT" == 1 ]]; then
+  cd "$WIKI" || { echo "publish: [commit] 无法进入 $WIKI"; exit 1; }
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "publish: [commit] $WIKI 不是 git 仓库，跳过提交"
+    exit 0
+  fi
+  # ponytail: 精确 add 而非 add -A，避免把 .obsidian/、.tmp、他人改动带入 commit
+  ADD_FILES=()
+  for PUB in "$STAGING"/published/*.md; do
+    [[ -f "$PUB" ]] || continue
+    SLUG="$(basename "$PUB" .md)"
+    T="$(sed -n 's/^type: *//p' "$PUB" | tr -d "'")"
+    DIR="$(type_dir "$T")"
+    TARGET="$WIKI/$DIR/$SLUG.md"
+    [[ -f "$TARGET" ]] || continue
+    ADD_FILES+=("$DIR/$SLUG.md")
+  done
+  # index.md / log.md：publish 逻辑已写入这两文件，直接提交
+  ADD_FILES+=("index.md" "log.md")
+  git add -- "${ADD_FILES[@]}" 2>/dev/null || true
+  HASH="$(git commit -m "feat(memoryhub): 蒸馏发布 ${#ADD_FILES[@]} 文件" 2>/dev/null || true)"
+  if [[ -n "$HASH" ]]; then
+    echo "publish: [commit] $HASH"
+    git diff --cached --stat 2>/dev/null
+  else
+    echo "publish: [commit] 无变更或提交失败"
+  fi
+fi

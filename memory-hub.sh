@@ -56,15 +56,24 @@ case "$CMD" in
   run)
     APPLY=0
     LLM=0
+    COMMIT=0
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --apply) APPLY=1 ;;
         --llm) LLM=1 ;;
+        --commit) COMMIT=1 ;;
         --help|-h) usage ;;
         *) echo "未知参数: $1" >&2; usage ;;
       esac
       shift
     done
+    PUBLISH_ARGS=""
+    if [[ "$APPLY" == 1 ]]; then
+      PUBLISH_ARGS="--apply"
+      if [[ "$COMMIT" == 1 ]]; then
+        PUBLISH_ARGS="$PUBLISH_ARGS --commit"
+      fi
+    fi
     echo "== memory-hub: capture -> distill -> publish $( [[ $APPLY == 1 ]] && echo '(apply)' || echo '(dry-run)' ) =="
     "$HUB_DIR/scripts/capture.sh"
     if [[ "$LLM" == 1 ]]; then
@@ -72,11 +81,7 @@ case "$CMD" in
     else
       "$HUB_DIR/scripts/distill.sh"
     fi
-    if [[ "$APPLY" == 1 ]]; then
-      "$HUB_DIR/scripts/publish.sh" --apply
-    else
-      "$HUB_DIR/scripts/publish.sh"
-    fi
+    "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
     echo "== memory-hub: 完成 =="
     ;;
   *) echo "未知命令: $CMD" >&2; usage; exit 2 ;;
