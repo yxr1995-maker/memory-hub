@@ -46,6 +46,7 @@ NEW="$(tail -c +$((OFFSET + 1)) "$TP" | jq -c --arg proj "$PROJ" '
   | {project:$proj, role, type, text:(.text | .[0:800]), created_at:.ts,
      created_at_epoch:(.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | . * 1000)}
 ' 2>/dev/null || true)"
+  NEW="$(python3 "$HUB_DIR/scripts/sanitize_jsonl.py" <<< "$NEW")"
 
 # 5. 去重+偏移更新：mkdir 原子锁（macOS 无 flock，防 PostToolUse 高频并发竞争写丢数据）
 #    锁内完成：内容去重（与轮次级 capture 共享 .seen，hash 统一对 del(.id) 核心字段，避免两路径重复入库）+ 偏移更新

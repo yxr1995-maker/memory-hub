@@ -136,6 +136,61 @@ else
   ok "DB 一致性通过（$(echo "$DB_RES" | grep '^db_rows=')）"
 fi
 
+# 5. wiki 内容硬检查
+WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
+TOKEN_RES="$(python3 - "$WIKI_DIR" <<'PY'
+import pathlib, re, sys
+wiki = pathlib.Path(sys.argv[1])
+patterns = [
+    re.compile(r'Bearer\s+\S+'),
+    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
+    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
+]
+doc_markers = [
+    re.compile(r'--bearer-token-env-var'),
+    re.compile(r'Bearer token', re.I),
+]
+hits = 0
+for p in wiki.rglob('*.md'):
+    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
+        continue
+    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
+        if any(m.search(line) for m in doc_markers):
+            continue
+        if any(pat.search(line) for pat in patterns):
+            hits += 1
+            print('BAD', p.relative_to(wiki))
+            break
+print(f'token_hits={hits}')
+PY
+)"
+TOKEN_N="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2)"
+if echo "$TOKEN_RES" | grep -q '^BAD'; then
+  echo "$TOKEN_RES" | grep '^BAD' | sed 's/^/  /'
+  fail "wiki 非归档区发现疑似 token（${TOKEN_N:-?} 页）"
+else
+  ok "wiki 非归档区 token 扫描通过（${TOKEN_N:-?} 命中）"
+fi
+
+# 死链：使用 fix_deadlinks.py --dry-run 的"未解/多候选"计数（已考虑别名/大小写/下划线归一）
+DEAD_RES="$(cd "$WIKI_DIR" && python3 .scripts/fix_deadlinks.py 2>&1)"
+DEAD_N="$(echo "$DEAD_RES" | python3 -c "import sys,re; m=re.search(r'未解/多候选:\s*(\d+)', sys.stdin.read()); print(m.group(1) if m else 999)")"
+RAW_DEAD_N="$(echo "$DEAD_RES" | python3 -c "import sys,re; m=re.search(r'raw 区死链:\s*(\d+)', sys.stdin.read()); print(m.group(1) if m else 0)")"
+if [[ -z "${DEAD_N// }" ]]; then DEAD_N=999; fi
+if [[ "${DEAD_N:-999}" -gt 20 ]]; then
+  echo "$DEAD_RES" | tail -10 | sed 's/^/  /'
+  fail "非 raw 区死链 ${DEAD_N:-?} > 20（raw 区 ${RAW_DEAD_N:-?}）"
+else
+  ok "非 raw 区死链 ${DEAD_N:-?} <= 20（raw 区 ${RAW_DEAD_N:-?}）"
+fi
+
+MH_N="$(find "$WIKI_DIR/concepts" "$WIKI_DIR/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$MH_N" -gt 0 ]]; then
+  fail "concepts/queries 下仍有 memoryhub 页 ${MH_N} 个"
+else
+  ok "concepts/queries 下无 memoryhub 页"
+fi
+
 if [[ "$FAIL" == 0 ]]; then
   echo "== verify: 全部通过 =="
   exit 0

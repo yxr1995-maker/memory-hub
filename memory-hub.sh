@@ -61,6 +61,21 @@ case "$CMD" in
       sleep 60
     done
     ;;
+  maintain)
+    WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
+    echo "== memory-hub maintain: 死链修复 -> 时间戳回填 -> 双链补全 -> lint 摘要 =="
+    cd "$WIKI_DIR"
+    python3 "$WIKI_DIR/.scripts/fix_deadlinks.py" --apply
+    python3 "$WIKI_DIR/.scripts/backfill_timestamps.py" --apply
+    python3 "$WIKI_DIR/.scripts/backfill_links.py" --apply
+    python3 "$WIKI_DIR/.scripts/lint_triage.py" | tail -20
+    printf '%s\n' "- $(date '+%Y-%m-%d %H:%M') memory-hub maintain 完成" >> "$WIKI_DIR/log.md"
+    cd "$WIKI_DIR"
+    git diff --name-only | while read -r f; do git add -- "$f"; done
+    git add -- "$WIKI_DIR/log.md" "$WIKI_DIR/index.md" 2>/dev/null || true
+    git commit -m "chore(wiki): memory-hub maintain" 2>/dev/null || true
+    echo "== memory-hub maintain: 完成 =="
+    ;;
   run)
     APPLY=0
     LLM=0
@@ -89,8 +104,11 @@ case "$CMD" in
     else
       "$HUB_DIR/scripts/distill.sh"
     fi
-    "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
+    # 先把存量页向量化（autolink 的 L2 语义匹配依赖 vec 表）
     python3 "$HUB_DIR/scripts/embed.py" index 2>&1 | tail -1
+    # 自动双链：蒸馏页在发布前补足有效出链（L1 tags/title 规则 + L2 embed 语义，缺一则降级）
+    python3 "$HUB_DIR/scripts/autolink.py" --apply
+    "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
     echo "== memory-hub: 完成 =="
     ;;
   *) echo "未知命令: $CMD" >&2; usage; exit 2 ;;

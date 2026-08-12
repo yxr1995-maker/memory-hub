@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# memory-hub lib: 通用工具（阶段耗时记录 → $HOME/.memory-hub/timings.tsv）
-# 被 capture/distill/publish/index 等脚本 source；embed.py 用同格式自记录。
+# memory-hub lib: 通用工具
 set -euo pipefail
 
 TIMING_FILE="${MEMORY_HUB_DATA:-$HOME/.memory-hub}/timings.tsv"
@@ -21,4 +20,24 @@ timing_end() {
   mkdir -p "$(dirname "$TIMING_FILE")"
   printf '%s\t%s\t%s\t%s\n' "$(date '+%s')" "$cmd" "$ms" "$rc" >> "$TIMING_FILE"
   _timing_active=0
+}
+
+# sanitize_text: 脱敏文本
+sanitize_text() {
+  local text="${1:-}"
+  if [[ $# -eq 0 ]]; then
+    text="$(cat)"
+  fi
+  # Bearer token
+  text="$(printf '%s' "$text" | sed -E 's/(Bearer[[:space:]]+)[A-Za-z0-9_\-\.]+/[REDACTED_BEARER]/g')"
+  # JWT
+  text="$(printf '%s' "$text" | sed -E 's/eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/[REDACTED_JWT]/g')"
+  # sk-ant- / sk-
+  text="$(printf '%s' "$text" | sed -E 's/(sk-ant-[A-Za-z0-9_\-]{16,})/[REDACTED_SK]/g')"
+  text="$(printf '%s' "$text" | sed -E 's/(sk-[A-Za-z0-9]{48})/[REDACTED_SK]/g')"
+  # api_key= / password= / token=
+  text="$(printf '%s' "$text" | sed -E 's/(api_key[[:space:]]*=[[:space:]]*)[^[:space:]\"'\''`&|;]+/\1[REDACTED]/gI')"
+  text="$(printf '%s' "$text" | sed -E 's/(password[[:space:]]*=[[:space:]]*)[^[:space:]\"'\''`&|;]+/\1[REDACTED]/gI')"
+  text="$(printf '%s' "$text" | sed -E 's/(token[[:space:]]*=[[:space:]]*)[^[:space:]\"'\''`&|;]+/\1[REDACTED]/gI')"
+  printf '%s' "$text"
 }

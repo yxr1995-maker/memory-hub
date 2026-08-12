@@ -56,6 +56,44 @@ gauge wiki_pages "$N_PAGES"
 gauge index_db_bytes "$DB_BYTES"
 gauge claude_mem_rows "$CM_ROWS"
 
+# wiki 内容健康（来自 verify.sh 的扫描结果）
+WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
+TOKEN_HITS="$(python3 - "$WIKI_DIR" <<'PY'
+import pathlib, re, sys
+wiki = pathlib.Path(sys.argv[1])
+patterns = [
+    re.compile(r'Bearer\s+\S+'),
+    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
+    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
+]
+doc_markers = [
+    re.compile(r'--bearer-token-env-var'),
+    re.compile(r'Bearer token', re.I),
+]
+hits = 0
+for p in wiki.rglob('*.md'):
+    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
+        continue
+    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
+        if any(m.search(line) for m in doc_markers):
+            continue
+        if any(pat.search(line) for pat in patterns):
+            hits += 1
+            break
+print(hits)
+PY
+)"
+gauge wiki_token_hits "${TOKEN_HITS:-0}"
+
+DEAD_RES="$(cd "$WIKI_DIR" && python3 .scripts/fix_deadlinks.py 2>&1)"
+DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^未解\/多候选:/ {print $2}')"
+RAW_DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^raw 区死链:/ {print $2}')"
+gauge wiki_dead_links "${DEAD_N:-0}"
+gauge wiki_raw_dead_links "${RAW_DEAD_N:-0}"
+
+MH_N="$(find "$WIKI_DIR/concepts" "$WIKI_DIR/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
+gauge wiki_memoryhub_stray_pages "${MH_N:-0}"
+
 if [[ -f "$TIMINGS" ]]; then
   echo "# TYPE memory_hub_duration_seconds_total counter"
   echo "# TYPE memory_hub_duration_seconds_count counter"

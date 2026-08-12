@@ -43,7 +43,12 @@ mkdir -p "$PAGES_DIR"
 rm -f "$PAGES_DIR"/*.md 2>/dev/null || true
 
 TS_BASE="$(basename "$IN" | sed -E 's/observations-([0-9]{8})-([0-9]{6})\.jsonl/\1-\2/')"
-DATE="${TS_BASE:0:4}-${TS_BASE:4:2}-${TS_BASE:6:2}"
+if [[ "$TS_BASE" == "$(basename "$IN")" ]]; then
+  # 非日期命名（如 observations-realtime.jsonl）使用当前 UTC 日期
+  DATE="$(date -u +%Y-%m-%d)"
+else
+  DATE="${TS_BASE:0:4}-${TS_BASE:4:2}-${TS_BASE:6:2}"
+fi
 
 llm_summary() {
   local project="$1"
@@ -66,30 +71,20 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
   safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
   [[ -n "$safe_p" ]] || safe_p="misc"
 
-  # —— type 智能映射（决策/失败/对比，默认 concept）——
-  GROUP_TEXT="$(jq -sr --arg p "$p" 'first(.[] | select(.project==$p)) | .text | .[0:2000]' "$IN")"
-  PAGE_TYPE="concept"
-  if [[ "$GROUP_TEXT" =~ 决策|决定|确认|改为|方案 ]]; then
-    PAGE_TYPE="decision"
-  elif [[ "$GROUP_TEXT" =~ 报错|失败|踩坑|错误|坑|问题 ]]; then
-    PAGE_TYPE="failure"
-  elif [[ "$GROUP_TEXT" =~ 对比|比较|横评 ]]; then
-    PAGE_TYPE="comparison"
-  fi
-
-  STAMP="$(date +%H%M%S)"
+  # memoryhub 蒸馏产物统一为 note，confidence low，由 wiki-distill 二次提炼后再分类
+  PAGE_TYPE="note"
   TOTAL_N="$(jq -c --arg p "$p" 'select(.project==$p)' "$IN" 2>/dev/null | wc -l | tr -d ' ')"
   [[ "$TOTAL_N" =~ ^[0-9]+$ ]] || TOTAL_N=0
   TYPES="$(jq -r --arg p "$p" 'select(.project==$p) | .type' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
   ROLE_N="$(jq -r --arg p "$p" 'select(.project==$p) | .role' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
   CHUNK_SIZE="${DETAIL_CAP:-60}"
   NCHUNKS=$(( (TOTAL_N + CHUNK_SIZE - 1) / CHUNK_SIZE ))
-  # 同 project 其他分页 slug 列表（互链用）
+  # 互链 slug 列表：只保留同批 staging 页（drafts/memoryhub 内部互链）
   shopt -s nullglob
   SLUG_FILES=("$PAGES_DIR"/*.md)
-  ALL_SLUGS=""
+  WIKI_LINKS=""
   if [[ ${#SLUG_FILES[@]} -gt 0 ]]; then
-    ALL_SLUGS="$(printf '%s\n' "${SLUG_FILES[@]}" | sed 's#.*/##; s#\.md$##' | tr '\n' ' ')"
+    WIKI_LINKS="$(printf '%s\n' "${SLUG_FILES[@]}" | sed 's#.*/##; s#\.md$##' | tr '\n' ' ')"
   fi
 
   for ((i=0; i<NCHUNKS; i++)); do
@@ -98,16 +93,17 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
     N=$((END - START + 1))
     CHUNK_SUFFIX=""; [[ $NCHUNKS -gt 1 ]] && CHUNK_SUFFIX="-$((i + 1))"
     TITLE_PART=""; [[ $NCHUNKS -gt 1 ]] && TITLE_PART="（第 $((i + 1))/$NCHUNKS 部分，$START-${END}）"
-    SLUG="$DATE-memoryhub-$safe_p-$STAMP$CHUNK_SUFFIX"
+    SLUG="$DATE-memoryhub-$safe_p$CHUNK_SUFFIX"
     FILE="$PAGES_DIR/$SLUG.md"
     NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 
     # L0 摘要: --llm 时用 AI，否则取组内第一条观察文本前 100 字符
     ABSTRACT=""
     if [[ "$LLM" == 1 ]]; then
-      ABSTRACT="$(llm_summary "$p" | head -1 | cut -c1-160)" || ABSTRACT=""
+      ABSTRACT="$(llm_summary "$p" | sed '/^[[:space:]]*$/d' | head -1 | cut -c1-160)" || ABSTRACT=""
     fi
     [[ -n "$ABSTRACT" ]] || ABSTRACT="$(jq -sr --arg p "$p" 'first(.[] | select(.project==$p)) | .text | .[0:100]' "$IN")"
+    ABSTRACT="$(printf '%s' "$ABSTRACT" | sanitize_text)"
 
     {
       echo "---"
@@ -121,7 +117,7 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
       echo "  - $p"
       echo "sources:"
       echo "  - codex://sessions"
-      echo "confidence: medium"
+      echo "confidence: low"
       echo "contested: false"
       echo "status: fresh"
       echo "last_verified: '$(date +%Y-%m-%d)'"
@@ -139,7 +135,7 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
         SUMMARY="$(llm_summary "$p")" || SUMMARY=""
         if [[ -n "$SUMMARY" ]]; then
           echo "⚠️ 以下为 AI 生成摘要，待核实："
-          echo "$SUMMARY"
+          printf '%s\n' "$SUMMARY" | sanitize_text
           echo ""
         else
           echo "（--llm 摘要不可用，降级为统计信息）"
@@ -155,15 +151,20 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
         select(.project==$p)
         | (if .role=="user" then "用户：" elif .role=="tool" then "工具调用：" elif .role=="assistant" then "助手：" else "" end) as $prefix
         | ("- \($prefix)\(.text // "") [\(.type) \(.id)]") | gsub("\n"; " ")' "$IN" \
-        | sed -n "${START},${END}p"
+        | sed -n "${START},${END}p" | sanitize_text
       echo ""
       echo "---"
-      LINKS="[[index]] · [[log]]"
-      [[ -f "$HOME/llm-wiki/moc/MOC.md" ]] && LINKS="$LINKS · [[moc/MOC]]"
-      for s in $ALL_SLUGS; do
-        [[ "$s" == "$SLUG" ]] && continue
-        LINKS="$LINKS · [[$s]]"
+      # 关联：优先近期同主题 wiki 页（带目录前缀，可解析），保底 index/log/MOC
+      # moc 实际文件名是「LLM-Wiki 地图」（带空格需引号），不存在 moc/MOC.md
+      LINKS=""
+      for wl in $WIKI_LINKS; do
+        [[ -n "$wl" ]] || continue
+        base="$(basename "$wl")"
+        [[ "$base" == "$SLUG" ]] && continue
+        LINKS="$LINKS · [[$wl]]"
       done
+      LINKS="[[index]] · [[log]]$LINKS"
+      [[ -f "$HOME/llm-wiki/moc/LLM-Wiki 地图.md" ]] && LINKS="$LINKS · [[moc/LLM-Wiki 地图]]"
       echo "关联: $LINKS"
     } > "$FILE"
     PAGES=$((PAGES + 1))

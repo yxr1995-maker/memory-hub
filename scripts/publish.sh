@@ -14,8 +14,17 @@ WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 APPLY=0
 COMMIT=0
 
+# 判断页面是否 memoryhub 蒸馏页
+is_memoryhub() {
+  grep -q '^  - memoryhub$' "$1"
+}
+
 # type -> 目录 映射
 type_dir() {
+  if is_memoryhub "$2"; then
+    echo "drafts/memoryhub"
+    return
+  fi
   case "$1" in
     decision) echo "decisions" ;;
     failure) echo "failures" ;;
@@ -76,7 +85,7 @@ if [[ "$APPLY" == 0 ]]; then
   echo "publish: [dry-run] 以下 ${#VALID_PAGES[@]} 页将通过校验:"
   for f in "${VALID_PAGES[@]}"; do
     T="$(sed -n 's/^type: *//p' "$f" | tr -d "'")"
-    DIR="$(type_dir "$T")"
+    DIR="$(type_dir "$T" "$f")"
     echo "  + $DIR/$(basename "$f") (type=$T)"
   done
   echo "publish: [dry-run] index.md / log.md 将相应更新"
@@ -96,19 +105,29 @@ LOG_ENTRIES=""
 for f in "${VALID_PAGES[@]}"; do
   SLUG="$(basename "$f")"
   T="$(sed -n 's/^type: *//p' "$f" | tr -d "'")"
-  DIR="$(type_dir "$T")"
+  DIR="$(type_dir "$T" "$f")"
   TARGET="$WIKI/$DIR/$SLUG"
-  if [[ -f "$TARGET" ]]; then
-    echo "publish: 跳过(已存在): $DIR/$SLUG"
-    continue
-  fi
-  mkdir -p "$WIKI/$DIR"
-  cp "$f" "$TARGET"
-  mv "$f" "$STAGING/published/$SLUG"
-  COPIED=$((COPIED + 1))
-  echo "publish: + $DIR/$SLUG"
-  if ! grep -qF "发布 $SLUG" "$WIKI/log.md" 2>/dev/null; then
-    LOG_ENTRIES+="- $(date '+%Y-%m-%d %H:%M') 发布 $SLUG ($T)"$'\n'
+  MH=0
+  is_memoryhub "$f" && MH=1
+  if [[ "$MH" == 1 ]]; then
+    mkdir -p "$WIKI/$DIR"
+    cp "$f" "$TARGET"
+    mv "$f" "$STAGING/published/$SLUG"
+    COPIED=$((COPIED + 1))
+    echo "publish: + $DIR/$SLUG (memoryhub, 覆盖更新)"
+  else
+    if [[ -f "$TARGET" ]]; then
+      echo "publish: 跳过(已存在): $DIR/$SLUG"
+      continue
+    fi
+    mkdir -p "$WIKI/$DIR"
+    cp "$f" "$TARGET"
+    mv "$f" "$STAGING/published/$SLUG"
+    COPIED=$((COPIED + 1))
+    echo "publish: + $DIR/$SLUG"
+    if ! grep -qF "发布 $SLUG" "$WIKI/log.md" 2>/dev/null; then
+      LOG_ENTRIES+="- $(date '+%Y-%m-%d %H:%M') 发布 $SLUG ($T)"$'\n'
+    fi
   fi
 done
 
@@ -119,13 +138,20 @@ fi
 
 # index.md 更新（对应分区段头后插入新页行）
 if [[ "$COPIED" -gt 0 ]]; then
+  # 运维蒸馏区只在 index.md 登记一次
+  if ! grep -qF "[[drafts/memoryhub]]" "$WIKI/index.md" 2>/dev/null; then
+    echo "- [[drafts/memoryhub]] — memoryhub 运维蒸馏区" >> "$WIKI/index.md"
+  fi
   INDEX_FILE="$(mktemp)"
   for PUB in "$STAGING"/published/*.md; do
     [[ -f "$PUB" ]] || continue
     SLUG="$(basename "$PUB" .md)"
     T="$(sed -n 's/^type: *//p' "$PUB" | tr -d "'")"
-    DIR="$(type_dir "$T")"
+    DIR="$(type_dir "$T" "$PUB")"
     TITLE="$(sed -n 's/^title: //p' "$PUB" | tr -d "'")"
+    if is_memoryhub "$PUB"; then
+      continue
+    fi
     if [[ -f "$WIKI/$DIR/$SLUG.md" ]] && ! grep -qF "[[$DIR/$SLUG]]" "$WIKI/index.md" 2>/dev/null; then
       echo "- [[$DIR/$SLUG]] — ${TITLE:-memory-hub 蒸馏}" >> "$INDEX_FILE"
     fi
@@ -153,7 +179,7 @@ if [[ "$COMMIT" == 1 ]]; then
     [[ -f "$PUB" ]] || continue
     SLUG="$(basename "$PUB" .md)"
     T="$(sed -n 's/^type: *//p' "$PUB" | tr -d "'")"
-    DIR="$(type_dir "$T")"
+    DIR="$(type_dir "$T" "$PUB")"
     TARGET="$WIKI/$DIR/$SLUG.md"
     [[ -f "$TARGET" ]] || continue
     ADD_FILES+=("$DIR/$SLUG.md")

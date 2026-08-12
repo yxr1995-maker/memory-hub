@@ -117,6 +117,7 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       | map(.value.id = ("w" + (100000 + .key | tostring)))
       | map(.value)
       | .[]
+    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     ' "$RAW" > "$OUT"
     rm -f "$RAW"
     rm -f "$WB_JQ_FILTER"
@@ -269,6 +270,7 @@ if [[ "$SOURCE" == "claude-code" ]]; then
       | map(.value.id = ("d" + (100000 + .key | tostring)))
       | map(.value)
       | .[]
+    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     ' "$RAW" > "$OUT"
     rm -f "$RAW"
     rm -f "$CLAUDE_JQ_FILTER"
@@ -371,6 +373,7 @@ run_capture() {
     | map(.value.id = ("c" + (100000 + .key | tostring)))
     | map(.value)
     | .[]
+  python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
   ' "$RAW" > "$OUT"
   rm -f "$RAW"
   rm -f "$CODEX_JQ_FILTER"

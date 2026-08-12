@@ -39,6 +39,37 @@ fi
 if [[ -d "$WIKI" ]]; then
   N_PAGES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
   echo "llm-wiki页面: ${N_PAGES}"
+  # wiki 健康摘要
+  TOKEN_HITS="$(python3 - "$WIKI" <<'PY'
+import pathlib, re, sys
+wiki = pathlib.Path(sys.argv[1])
+patterns = [
+    re.compile(r'Bearer\s+\S+'),
+    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
+    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
+]
+doc_markers = [
+    re.compile(r'--bearer-token-env-var'),
+    re.compile(r'Bearer token', re.I),
+]
+hits = 0
+for p in wiki.rglob('*.md'):
+    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
+        continue
+    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
+        if any(m.search(line) for m in doc_markers):
+            continue
+        if any(pat.search(line) for pat in patterns):
+            hits += 1
+            break
+print(hits)
+PY
+)"
+  DEAD_RES="$(cd "$WIKI" && python3 .scripts/fix_deadlinks.py 2>&1)"
+  DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^未解\/多候选:/ {print $2}')"
+  RAW_DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^raw 区死链:/ {print $2}')"
+  MH_N="$(find "$WIKI/concepts" "$WIKI/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
+  echo "  健康: token命中=${TOKEN_HITS:-0} 死链=${DEAD_N:-?}(raw=${RAW_DEAD_N:-?}) concepts/queries-memoryhub=${MH_N:-0}"
   echo "  最近更新:"
   { find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' -print0 2>/dev/null \
     | xargs -0 ls -t 2>/dev/null | head -3 | while read -r f; do
