@@ -38,6 +38,9 @@
 | `search "词" [--top N] [--raw] [--all] [--gbrain]` | rg 全文检索（默认排除 raw/_legacy-para）；`--gbrain` 优先 gbrain 混合检索，失败回退 rg |
 | `inject [--apply --file X]` | 记忆上下文注入（对齐 claude-mem AGENTS.md 注入）：默认输出 Markdown 到 stdout（知识库最近 5 页 + 最新观察 10 条 + 统计）；`--apply` 写入指定 AGENTS.md 的 MARKER 区段，重复运行只替换区段 |
 | `status` | 健康检查：Codex 会话数/最新会话、staging 观察与游标、llm-wiki 页面数/最近更新、claude-mem DB、本地 LLM 代理可达性 |
+| `verify` | 静态漂移校验（CI 用）：49 个 automation.toml 全量 tomllib 解析、hooks.json 引用脚本存在、config.toml MCP 指向真实文件、memory-hub 相关 automation 与 DB 记录一一对应。全过 exit 0 |
+| `metrics` | Prometheus 文本输出（兼容 node_exporter textfile）：即时统计 + `~/.memory-hub/timings.tsv` 阶段耗时（capture/distill/publish/index/embed 的 count/sum/last） |
+| `serve [--port 8787]` | REST 查询服务（stdlib，零依赖）：`/health` `/status` `/search?q=&top=&expand=` `/ask?q=` `/metrics`，供外部 agent 查询知识库/向量索引 |
 | `watch` | 每 60 秒 capture → distill 循环，Ctrl-C 退出 |
 | `run [--apply] [--llm]` | 一键全链路 |
 

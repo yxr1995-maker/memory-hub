@@ -9,13 +9,17 @@ cd "$HUB_DIR"
 usage() {
   echo "用法: memory-hub.sh <命令> [参数]"
   echo "  capture             采集: 解析 Codex 会话 JSONL → staging/（--all 全量 / --since <ms> / --source claude-mem）"
-  echo "  distill [--llm]     蒸馏: → staging/pages/（L0摘要/L1概述/L2明细，免费模型摘要可选）"
+  echo "  embed [index|search] 语义/向量检索（fastembed 本地模型，增量索引 + 余弦相似度）"
+echo "  distill [--llm]     蒸馏: → staging/pages/（L0摘要/L1概述/L2明细，免费模型摘要可选）"
   echo "  publish [--apply]   发布: → ~/llm-wiki 按 type 映射目录 + index/log（默认 dry-run）"
   echo "  search \"词\" [--top N] [--raw] [--all] [--gbrain]  检索 ~/llm-wiki"
   echo "  index [--with-raw]    索引 ~/llm-wiki → SQLite FTS5（trigram 中文分词）"
   echo "  ask \"问题\" [--top N]   知识库问答（FTS 检索 + 免费模型生成）"
   echo "  inject [--apply --file X]  记忆上下文注入（默认输出 stdout）"
   echo "  status              健康检查/统计"
+  echo "  verify              静态漂移校验（toml/hook/MCP/DB，CI 用）"
+  echo "  metrics             输出 Prometheus 文本指标"
+  echo "  serve [--port N]    启动 REST 查询服务（/search /ask /status /metrics）"
   echo "  watch               定时采集循环（每 60 秒）"
   echo "  run [--apply] [--llm]  一键全链路 capture→distill→publish（默认 dry-run）"
 }
@@ -35,12 +39,16 @@ fi
 case "$CMD" in
   capture) exec "$HUB_DIR/scripts/capture.sh" "$@" ;;
   distill) exec "$HUB_DIR/scripts/distill.sh" "$@" ;;
+  embed) exec python3 "$HUB_DIR/scripts/embed.py" "$@" ;;
   publish) exec "$HUB_DIR/scripts/publish.sh" "$@" ;;
   search) exec "$HUB_DIR/scripts/search.sh" "$@" ;;
   index) exec "$HUB_DIR/scripts/index.sh" "$@" ;;
   ask) exec "$HUB_DIR/scripts/ask.sh" "$@" ;;
   inject) exec "$HUB_DIR/scripts/inject.sh" "$@" ;;
   status) exec "$HUB_DIR/scripts/status.sh" "$@" ;;
+  verify) exec "$HUB_DIR/scripts/verify.sh" "$@" ;;
+  metrics) exec "$HUB_DIR/scripts/metrics.sh" "$@" ;;
+  serve) exec python3 "$HUB_DIR/scripts/server.py" "$@" ;;
   watch)
     echo "== memory-hub watch: 每 60 秒增量采集 + 蒸馏 (Ctrl-C 退出) =="
     while true; do
@@ -82,6 +90,7 @@ case "$CMD" in
       "$HUB_DIR/scripts/distill.sh"
     fi
     "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
+    python3 "$HUB_DIR/scripts/embed.py" index 2>&1 | tail -1
     echo "== memory-hub: 完成 =="
     ;;
   *) echo "未知命令: $CMD" >&2; usage; exit 2 ;;

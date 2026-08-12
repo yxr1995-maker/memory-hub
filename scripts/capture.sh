@@ -4,6 +4,9 @@ set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING="$HUB_DIR/staging"
+source "$HUB_DIR/scripts/lib.sh"
+timing_begin
+trap 'timing_end capture "$?"' EXIT
 SOURCE="codex"
 SINCE=""
 ALL=0

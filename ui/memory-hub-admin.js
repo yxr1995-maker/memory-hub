@@ -166,15 +166,14 @@
     @keyframes mh-toast { from { opacity: 0; transform: translate(-50%, 12px); }
       to { opacity: 1; transform: translate(-50%, 0); } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-    .backdrop { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center;
-      justify-content: center; pointer-events: auto; background: rgba(0,0,0,.55);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    /* 页面式接管：铺满主内容区（侧栏右侧），左上对齐原生页面 */
+    .pagehost { position: fixed; top: 0; right: 0; bottom: 0; left: var(--mh-left, 0px);
+      z-index: 2147483000; pointer-events: auto; background: var(--bg);
       animation: mh-fade .16s var(--ease);
       font: 14px/1.55 var(--font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif); }
-    .panel { width: min(1320px, 94vw); height: min(860px, 90vh); border-radius: 14px; overflow: hidden;
+    .panel { width: 100%; height: 100%; overflow: hidden;
       display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
-      border: 1px solid var(--bd); animation: mh-in .2s var(--ease);
-      box-shadow: 0 24px 70px rgba(0,0,0,.5), 0 1px 0 rgba(255,255,255,.04) inset; }
+      border-left: 1px solid var(--bd); }
     header { display: flex; align-items: center; gap: 10px; padding: 11px 14px;
       border-bottom: 1px solid var(--bd); background: var(--bg2); flex: none; }
     header .mark { width: 24px; height: 24px; border-radius: 7px; background: var(--card);
@@ -393,7 +392,7 @@
 
   function buildPanel() {
     backdrop = document.createElement("div");
-    backdrop.className = "backdrop";
+    backdrop.className = "pagehost";
     backdrop.innerHTML = `
       <div class="panel" role="dialog" aria-label="Memory Hub 管理面板">
         <header>
@@ -413,7 +412,6 @@
     contentEl = backdrop.querySelector("main");
     dotEl = backdrop.querySelector(".dot");
     tabsEl = backdrop.querySelector(".tabs");
-    backdrop.addEventListener("mousedown", (e) => { if (e.target === backdrop) closePanel(); });
     backdrop.querySelector(".x").addEventListener("click", closePanel);
     tabsEl.addEventListener("click", (e) => {
       const b = e.target.closest("button[data-tab]");
@@ -433,6 +431,7 @@
     if (state.open) return;
     state.open = true;
     if (!backdrop) buildPanel();
+    updatePageOffset();
     backdrop.style.display = "flex";
     switchTab(state.tab);
     checkHealth();
@@ -441,6 +440,30 @@
     state.open = false;
     if (backdrop) backdrop.style.display = "none";
   }
+
+  // 面板左缘对齐侧栏右缘；侧栏折叠/窗口缩放时跟随
+  function updatePageOffset() {
+    const sb = document.querySelector("[data-app-action-sidebar-scroll]");
+    const aside = sb?.closest("aside, nav") || sb;
+    const right = aside?.getBoundingClientRect?.().right;
+    host.style.setProperty("--mh-left", `${Math.max(0, Math.round(right || 0))}px`);
+  }
+
+  // 点击侧栏原生导航（会话/项目/原生页面）时退出面板，把页面还给 Codex
+  const NATIVE_NAV_SELECTOR = [
+    "[data-app-action-sidebar-thread-id]",
+    "[data-app-action-sidebar-project-row]",
+    "[data-app-action-sidebar-section-toggle]",
+  ].join(",");
+  const onNativeNav = (e) => {
+    if (!state.open) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest(`[${ENTRY_ATTR}]`)) return;  // 自己的入口不触发
+    const sidebar = t.closest("[data-app-action-sidebar-scroll]") || t.closest("aside nav");
+    if (!sidebar) return;
+    if (t.closest(NATIVE_NAV_SELECTOR) || t.closest("button, a")) closePanel();
+  };
 
   // ============================================================
   // 区域 7/14：视图骨架（loading / 错误 / 空态）与路由
@@ -1311,8 +1334,8 @@
   // ============================================================
   // 区域 14/14：入口注入（Codex++ 菜单 → 侧栏 → 浮动兜底）、生命周期
   // ============================================================
-  const ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  const ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
     <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>`;
 
@@ -1321,8 +1344,17 @@
     btn.setAttribute(ENTRY_ATTR, "1");
     btn.title = "Memory Hub 管理面板";
     btn.style.cssText = `all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;
-      padding:7px 12px;margin:2px 6px;border-radius:8px;font-size:13px;color:inherit;`;
+      padding:5px 8px;margin:0;border-radius:12.5px;font-size:13px;color:inherit;
+      height:30px;box-sizing:border-box;width:100%;`;
     btn.innerHTML = `${ICON}<span>Memory Hub</span>`;
+    // 与原生侧栏项对齐：采样同级原生按钮的盒模型（Codex 改版也能跟上）
+    const native = [...document.querySelectorAll("[data-app-action-sidebar-scroll] button")]
+      .find((b) => !b.hasAttribute(ENTRY_ATTR));
+    if (native) {
+      const cs = getComputedStyle(native);
+      for (const p of ["padding", "margin", "borderRadius", "height", "fontSize",
+        "fontWeight", "lineHeight", "gap", "color"]) btn.style[p] = cs[p];
+    }
     btn.onmouseenter = () => { btn.style.background = "rgba(128,128,128,.18)"; };
     btn.onmouseleave = () => { btn.style.background = "transparent"; };
     btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openPanel(); });
@@ -1349,16 +1381,20 @@
 
   function injectEntry() {
     if (document.querySelector(`[${ENTRY_ATTR}]`)) return true;
-    // 1) codex++ 自己的菜单（最自然的集成点）
-    const menu = document.querySelector('#codex-plus-menu, [data-codex-plus-menu="true"]');
-    if (menu) { menu.appendChild(buildEntryButton()); return true; }
-    // 2) Codex 左侧边栏：优先挂到其滚动容器尾部
-    const sb = findSidebar();
-    if (sb) {
-      const hostEl = sb.querySelector("[data-app-action-sidebar-scroll]") || sb;
-      hostEl.appendChild(buildEntryButton());
+    // 1) Codex 左侧边栏：与 taskboard 注入器同源的锚点（该应用实测可靠）
+    const scroll = document.querySelector("[data-app-action-sidebar-scroll]");
+    if (scroll) {
+      const btn = buildEntryButton();
+      // 插到「插件」按钮后面；找不到就追加到滚动区末尾
+      const pluginBtn = [...scroll.querySelectorAll("button")].find((b) =>
+        /^(插件|plugins)$/i.test((b.textContent || "").trim()));
+      if (pluginBtn?.parentElement) pluginBtn.parentElement.insertBefore(btn, pluginBtn.nextSibling);
+      else scroll.appendChild(btn);
       return true;
     }
+    // 2) codex++ 自己的菜单
+    const menu = document.querySelector('#codex-plus-menu, [data-codex-plus-menu="true"]');
+    if (menu) { menu.appendChild(buildEntryButton()); return true; }
     return false;
   }
 
@@ -1409,6 +1445,9 @@
     }
   };
   document.addEventListener("keydown", onKey, true);
+  document.addEventListener("click", onNativeNav, true);
+  const onResize = debounce(() => { if (state.open) updatePageOffset(); }, 150);
+  window.addEventListener("resize", onResize);
 
   // 挂载与全局句柄（harness 契约：open/close/destroy/version）
   document.body.appendChild(host);
@@ -1425,6 +1464,8 @@
       clearInterval(healthTimer);
       clearTimeout(toastTimer);
       document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("click", onNativeNav, true);
+      window.removeEventListener("resize", onResize);
       document.querySelectorAll(`[${ENTRY_ATTR}]`).forEach((n) => n.remove());
       host.remove();
       delete window[API_KEY];

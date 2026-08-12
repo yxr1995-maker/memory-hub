@@ -6,6 +6,9 @@ set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING="$HUB_DIR/staging"
 PAGES_DIR="$STAGING/pages"
+source "$HUB_DIR/scripts/lib.sh"
+timing_begin
+trap 'timing_end distill "$?"' EXIT
 LLM=0
 MODEL="${CLAUDE_MEM_MODEL:-sensenova/sensenova-6.8-flash-lite}"
 PROXY="${OPENCODEX_URL:-http://127.0.0.1:10100/v1}"

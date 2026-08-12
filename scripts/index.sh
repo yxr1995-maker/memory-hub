@@ -6,6 +6,9 @@ set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${MEMORY_HUB_DATA:-$HOME/.memory-hub}"
 DB="$DATA_DIR/index.db"
+source "$HUB_DIR/scripts/lib.sh"
+timing_begin
+trap 'timing_end index "$?"' EXIT
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 WITH_RAW=0
 

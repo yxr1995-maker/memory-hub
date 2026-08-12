@@ -7,6 +7,9 @@ set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING="$HUB_DIR/staging"
 PAGES_DIR="$STAGING/pages"
+source "$HUB_DIR/scripts/lib.sh"
+timing_begin
+trap 'timing_end publish "$?"' EXIT
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 APPLY=0
 COMMIT=0
