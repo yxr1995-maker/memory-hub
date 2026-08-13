@@ -110,6 +110,7 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$WB_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
     done < <(scan_files_wb)
 
+    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     jq -s -c '
       sort_by(.created_at_epoch)
       | map(select((.text | gsub("\\s"; "")) != ""))
@@ -117,7 +118,6 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       | map(.value.id = ("w" + (100000 + .key | tostring)))
       | map(.value)
       | .[]
-    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     ' "$RAW" > "$OUT"
     rm -f "$RAW"
     rm -f "$WB_JQ_FILTER"
@@ -263,6 +263,7 @@ if [[ "$SOURCE" == "claude-code" ]]; then
       jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$CLAUDE_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
     done < <(scan_files_claude)
 
+    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     jq -s -c '
       sort_by(.created_at_epoch)
       | map(select((.text | gsub("\\s"; "")) != ""))
@@ -270,7 +271,6 @@ if [[ "$SOURCE" == "claude-code" ]]; then
       | map(.value.id = ("d" + (100000 + .key | tostring)))
       | map(.value)
       | .[]
-    python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
     ' "$RAW" > "$OUT"
     rm -f "$RAW"
     rm -f "$CLAUDE_JQ_FILTER"
@@ -366,6 +366,7 @@ run_capture() {
     jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$CODEX_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
   done < <(scan_files)
 
+  python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
   jq -s -c '
     sort_by(.created_at_epoch)
     | map(select((.text | gsub("\\s"; "")) != ""))
@@ -373,7 +374,6 @@ run_capture() {
     | map(.value.id = ("c" + (100000 + .key | tostring)))
     | map(.value)
     | .[]
-  python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
   ' "$RAW" > "$OUT"
   rm -f "$RAW"
   rm -f "$CODEX_JQ_FILTER"
