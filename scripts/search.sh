@@ -11,6 +11,7 @@ ALL=0
 GBRAIN=0
 NO_FTS=0
 EXPAND=0
+FUSE=0
 MODEL="${CLAUDE_MEM_MODEL:-volcengine-coding-plan/ark-code-latest}"
 PROXY="${OPENCODEX_URL:-http://127.0.0.1:10100/v1}"
 
@@ -21,6 +22,7 @@ usage() {
   echo "  --all      包含 _legacy-para/ 目录"
   echo "  --gbrain   优先用 gbrain 混合检索，失败回退 rg"
   echo "  --no-fts   跳过 FTS5 索引，直接用 rg"
+  echo "  --fuse     使用 fuse.py 融合检索（FTS5 bm25 + 向量，RRF k=60）"
   echo "  --expand   LLM 查询扩展（语义检索：生成相关关键词后 FTS5 检索）"
   exit 0
 }
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --gbrain) GBRAIN=1 ;;
     --no-fts) NO_FTS=1 ;;
     --expand) EXPAND=1 ;;
+    --fuse) FUSE=1 ;;
     --help|-h) usage ;;
     -*) echo "未知参数: $1" >&2; usage ;;
     *) Q="$1" ;;
@@ -43,6 +46,11 @@ done
 
 [[ -n "$Q" ]] || { echo "用法: search.sh \"关键词\"" >&2; exit 1; }
 [[ -d "$WIKI" ]] || { echo "错误: 知识库不存在: $WIKI" >&2; exit 1; }
+
+# —— --fuse: 委托 fuse.py 做 FTS5 bm25 + 向量 RRF 融合检索 ——
+if [[ "$FUSE" == 1 ]]; then
+  exec python3 "$HUB_DIR/scripts/fuse.py" "$Q" --top "$TOP"
+fi
 
 # —— LLM 查询扩展（语义检索近似：生成相关关键词）——
 if [[ "$EXPAND" == 1 ]]; then

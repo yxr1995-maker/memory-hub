@@ -712,6 +712,8 @@ class Handler(BaseHTTPRequestHandler):
             args = [first("q")[:500], "--top", first("top", "10")]
             if first("expand", "0") in ("1", "true", "yes"):
                 args.append("--expand")
+            if first("fuse", "1") in ("1", "true", "yes"):
+                args.append("--fuse")
             body, code = run_script("search.sh", *args, timeout=40)
             self._mh_refs = extract_md_refs(body)
             return self._text(body, code)
@@ -719,6 +721,8 @@ class Handler(BaseHTTPRequestHandler):
             args = [first("q")[:500], "--top", first("top", "5")]
             if first("expand", "0") in ("1", "true", "yes"):
                 args.append("--expand")
+            if first("fuse", "1") in ("1", "true", "yes"):
+                args.append("--fuse")
             body, code = run_script("ask.sh", *args, timeout=90)
             self._mh_refs = extract_md_refs(body)
             return self._text(body, code)

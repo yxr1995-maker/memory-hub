@@ -71,28 +71,34 @@ def _clamp_top(top: int, lo: int = 1, hi: int = 50) -> int:
 
 
 @mcp.tool()
-def memory_search(query: str, top: int = 10, expand: bool = False) -> str:
-    """检索 memory-hub 知识库（SQLite FTS5 全文检索，bm25 排名）。
+def memory_search(query: str, top: int = 10, expand: bool = False, fuse: bool = True) -> str:
+    """检索 memory-hub 知识库（默认 FTS5 bm25 + 向量 RRF 融合检索，k=60）。
     query: 检索关键词（可多个，空格分隔）
     top: 结果数上限（默认 10）
-    expand: True 时先做 LLM 查询扩展（语义检索，生成相关关键词）"""
+    expand: True 时先做 LLM 查询扩展（语义检索，生成相关关键词）
+    fuse: True 时使用 fuse.py 融合检索（默认开启），False 走独立 FTS5"""
     args = [query[:500], "--top", str(_clamp_top(top))]
     if expand:
         args.append("--expand")
+    if fuse:
+        args.append("--fuse")
     out = _run("search.sh", *args, timeout=40 if expand else 20)
     _log("search", query, _md_refs(out))
     return out
 
 
 @mcp.tool()
-def memory_ask(question: str, top: int = 5, expand: bool = False) -> str:
+def memory_ask(question: str, top: int = 5, expand: bool = False, fuse: bool = True) -> str:
     """基于 memory-hub 知识库问答（FTS5 检索相关页 + 免费模型生成回答，引用来源页面）。
     question: 问题
     top: 检索页数（默认 5）
-    expand: True 时检索前先做 LLM 查询扩展"""
+    expand: True 时检索前先做 LLM 查询扩展
+    fuse: True 时使用 fuse.py 融合检索（默认开启），False 走独立 FTS5"""
     args = [question[:500], "--top", str(_clamp_top(top))]
     if expand:
         args.append("--expand")
+    if fuse:
+        args.append("--fuse")
     out = _run("ask.sh", *args, timeout=90)
     _log("ask", question, _md_refs(out))
     return out
