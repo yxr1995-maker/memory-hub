@@ -32,11 +32,15 @@
 |------|------|
 | `capture` | 解析 `~/.codex/sessions/**/*.jsonl` → `staging/observations-*.jsonl`。自动兼容新旧会话格式；用户消息剔除系统注入噪音（`<recommended_plugins>/<environment_context>` 等）；提取 tool 事件为 `type=tool` 观察；增量游标 `staging/.since` + 内容去重 `staging/.seen`。`--all` 全量 / `--since <ms>` / `--watch` 每 60 秒循环 / `--source claude-mem` 旧 SQLite 兼容  / `--source claude-code` 解析 Claude Code 会话 / `--source workbuddy` 解析 WorkBuddy 会话（`~/.workbuddy/projects`，id 前缀 `w`，独立游标）|
 | `distill [--llm]` | 按 project 分组生成合规 wiki 页 → `staging/pages/`。frontmatter 含 `title/type/created/updated/abstract/tags/sources/confidence/contested/status/last_verified`；type 智能映射（决策→decision、失败→failure、对比→comparison、默认 concept）；正文 L0 摘要 + L1 概述 + L2 明细（>60 条自动分页）；AI 摘要标 ⚠️待核实；出链 `[[index]] [[log]]` + 同项目分页互链 |
+| `distill` F1 冲突检测 | wiki `drafts/memoryhub/` 已存在同 project 页时，新页标 `status: candidate` + `contested: true`，并生成 `reports/conflicts/<slug>.md` 对照报告；publish 跳过 candidate 页，绝不覆盖已存在页 |
 | `index [--with-raw]` | 把 ~/llm-wiki 索引进 SQLite FTS5（trigram 中文分词）→ `~/.memory-hub/index.db`（3663 页 ~3 分钟，全量重建） |
+| `eval [--top N]` | 自评测基准(F3+U2): 跑 `evaluation/golden.jsonl` 的 31 条「问题→预期页」对,算 hit@N 与 MRR,按 AML 四类 A/C/D/G 给出能力画像,写 `reports/eval-<date>.md` |
+| `archive [--keep N] [--apply]` | 归档已消费的观察文件(F4): `staging/observations-*.jsonl`(仅日期命名,不含 realtime/test) 除最新 N 份外全部移入 `staging/archive/`(可恢复,不 rm); 默认 dry-run; `run --apply` 成功后自动执行 |
 | `ask "问题" [--top N]` | 知识库问答（替代 gbrain ask）：FTS5 检索 + 免费模型生成（默认 sensenova/sensenova-6.8-flash-lite） |
 | `publish [--apply]` | `staging/pages` → `~/llm-wiki` 按 type 映射目录（decision→decisions/ 等）；默认 dry-run；frontmatter 五字段校验；永不覆盖已存在页面；`--apply` 更新 index.md/log.md（log 防重复） |
 | `search "词" [--top N] [--raw] [--all] [--gbrain]` | rg 全文检索（默认排除 raw/_legacy-para）；`--gbrain` 优先 gbrain 混合检索，失败回退 rg |
-| `inject [--apply --file X]` | 记忆上下文注入（对齐 claude-mem AGENTS.md 注入）：默认输出 Markdown 到 stdout（知识库最近 5 页 + 最新观察 10 条 + 统计）；`--apply` 写入指定 AGENTS.md 的 MARKER 区段，重复运行只替换区段 |
+| `search "词" --fuse [--top N] [--tau N]` | FTS5 bm25 + 向量 RRF 融合检索(F2)；中文 3-gram 滑窗拆词适配 trigram 索引；`--tau` 时间衰减天数(默认 90,`--tau 0` 关闭,新页优先)；type 加权: entity/concept ×1.8, atom/query/draft ×0.7 (hit@5 0.710→0.871) |
+| `inject [--apply --file X] [--project NAME]` | 记忆上下文注入（对齐 claude-mem AGENTS.md 注入）：默认输出 Markdown 到 stdout（知识库最近 5 页[长期库] + 本会话观察[staging 按 project 分离，U3] + 统计）；`--project` 指定本会话 project（缺省自动推断）；`--apply` 写入指定 AGENTS.md 的 MARKER 区段，重复运行只替换区段 |
 | `status` | 健康检查：Codex 会话数/最新会话、staging 观察与游标、llm-wiki 页面数/最近更新、claude-mem DB、本地 LLM 代理可达性 |
 | `verify` | 静态漂移校验（CI 用）：49 个 automation.toml 全量 tomllib 解析、hooks.json 引用脚本存在、config.toml MCP 指向真实文件、memory-hub 相关 automation 与 DB 记录一一对应。全过 exit 0 |
 | `metrics` | Prometheus 文本输出（兼容 node_exporter textfile）：即时统计 + `~/.memory-hub/timings.tsv` 阶段耗时（capture/distill/publish/index/embed 的 count/sum/last） |

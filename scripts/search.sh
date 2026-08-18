@@ -10,6 +10,7 @@ RAW=0
 ALL=0
 GBRAIN=0
 NO_FTS=0
+NOFALLBACK=0
 EXPAND=0
 FUSE=0
 MODEL="${CLAUDE_MEM_MODEL:-volcengine-coding-plan/ark-code-latest}"
@@ -22,8 +23,10 @@ usage() {
   echo "  --all      包含 _legacy-para/ 目录"
   echo "  --gbrain   优先用 gbrain 混合检索，失败回退 rg"
   echo "  --no-fts   跳过 FTS5 索引，直接用 rg"
-  echo "  --fuse     使用 fuse.py 融合检索（FTS5 bm25 + 向量，RRF k=60）"
-  echo "  --expand   LLM 查询扩展（语义检索：生成相关关键词后 FTS5 检索）"
+ echo "  --fuse     使用 fuse.py 融合检索（FTS5 bm25 + 向量，RRF k=60）"
+  echo "  --no-fallback  内部用：FTS 无命中时不回退 rg（fuse 调用 search.sh 用）"
+  echo "  --tau N    与 --fuse 合用: 时间衰减常数(天,默认 90; --tau 0 关闭, 新页优先)"
+ echo "  --expand   LLM 查询扩展（语义检索：生成相关关键词后 FTS5 检索）"
   exit 0
 }
 
@@ -35,9 +38,11 @@ while [[ $# -gt 0 ]]; do
     --all) ALL=1 ;;
     --gbrain) GBRAIN=1 ;;
     --no-fts) NO_FTS=1 ;;
+    --no-fallback) NOFALLBACK=1 ;;
     --expand) EXPAND=1 ;;
-    --fuse) FUSE=1 ;;
-    --help|-h) usage ;;
+   --fuse) FUSE=1 ;;
+    --tau) TAU="$2"; shift ;;
+   --help|-h) usage ;;
     -*) echo "未知参数: $1" >&2; usage ;;
     *) Q="$1" ;;
   esac
@@ -49,7 +54,7 @@ done
 
 # —— --fuse: 委托 fuse.py 做 FTS5 bm25 + 向量 RRF 融合检索 ——
 if [[ "$FUSE" == 1 ]]; then
-  exec python3 "$HUB_DIR/scripts/fuse.py" "$Q" --top "$TOP"
+  exec python3 "$HUB_DIR/scripts/fuse.py" "$Q" --top "$TOP" --tau "${TAU:-90}"
 fi
 
 # —— LLM 查询扩展（语义检索近似：生成相关关键词）——
@@ -84,24 +89,39 @@ fi
 # —— FTS5 索引检索（trigram 分词，支持中文子串）——
 if [[ "$NO_FTS" == 0 && -f "$DB" ]]; then
   # 查询词拆分：trigram 需要 3+ 字符的词；短词（<3 字符）单独忽略或走 rg
+  # 中文分词适配：trigram 索引按 3 字符滑窗建词，查询整句作单词无法命中。
+  # 对每个 >=3 字符的词产出 3-gram 滑窗子串，OR 拼接让 trigram 索引真正生效。
+  ngram() {
+    local s="$1" out="" i
+    for ((i = 0; i < ${#s} - 2; i++)); do
+      out="${out:+$out OR }${s:i:3}"
+    done
+    printf '%s' "$out"
+  }
   TERMS=""
   for w in $Q; do
     for w2 in ${w//-/ }; do
       W_LEN="$(printf '%s' "$w2" | wc -m | tr -d ' ')"
       if [[ "$W_LEN" -ge 3 ]]; then
-        # FTS5 注入防护：元字符 *|&~()- 替换为空格，" 转义为 ""（phrase 内），合并多余空格
+        # FTS5 注入防护：元字符 *|&~()- 替换为空格
         W_S="$(printf '%s' "$w2" | sed 's/[*|&~()]/ /g; s/"/""/g; s/  */ /g; s/^ //; s/ $//')"
-        [[ -n "$W_S" ]] && TERMS="${TERMS:+$TERMS OR }\"$W_S\""
+        if [[ -n "$W_S" ]]; then
+          G="$(ngram "$W_S")"
+          [[ -n "$G" ]] && TERMS="${TERMS:+$TERMS OR }$G"
+        fi
       fi
     done
   done
   if [[ -n "$TERMS" ]]; then
-    HITS="$(sqlite3 "$DB" "SELECT path, snippet(pages, 5, '>>>', '<<<', '…', 30), bm25(pages) FROM pages WHERE pages MATCH '$TERMS' ORDER BY bm25(pages) LIMIT $TOP;" 2>/dev/null || true)"
+    HITS="$(sqlite3 "$DB" "SELECT path, bm25(pages) FROM pages WHERE pages MATCH '$TERMS' ORDER BY bm25(pages) LIMIT $TOP;" 2>/dev/null || true)"
     if [[ -n "$HITS" ]]; then
       echo "== FTS5 检索 ($DB): $Q =="
-      printf '%s\n' "$HITS" | awk -F'|' '{printf "[%3.1f] %s\n      …%s\n", $3, $1, $2}'
+      printf '%s\n' "$HITS" | awk -F'|' '{printf "[%.1f] %s\n", $2, $1}'
       exit 0
     else
+      if [[ "$NOFALLBACK" == 1 ]]; then
+        exit 0
+      fi
       echo "search: FTS5 无命中，回退 rg"
     fi
   fi
