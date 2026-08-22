@@ -11,7 +11,7 @@
 | claude-mem (v13.12.4, 本地已装) | transcript-watch 事件模型、observations 字段（facts/narrative/concepts/files_read/files_modified）、mem-search、AGENTS.md 注入、status 健康检查 |
 | gbrain (0.42.73.2, 本地已装) | 5 维知识结构、frontmatter 6 字段、双标注（✅/⚠️/❓）、出链、index.md/log.md、hybrid search |
 | langchain-ai/openwiki (14.8k★) | 确定性采集→agent 合成两阶段、OKF 格式 frontmatter、connector 扩展、本地可视化 |
-| volcengine/OpenViking (28.1k★) | L0 摘要/L1 概述/L2 详情三层加载、会话→长期记忆异步提取、可观测检索 |
+| volcengine/OpenViking (31.2k★，2026-08-21 实测) | L0 摘要/L1 概述/L2 详情三层加载、会话→长期记忆异步提取、可观测检索 |
 | TencentDB-Agent-Memory (19.2k★) | 四类记忆资产（会话/技能/wiki/代码图）、L0-L3 分层蒸馏、资产与框架解耦 |
 | vectorize-io/hindsight (19.4k★) | 学习型记忆（偏好/决策提取） |
 | mcncarl/agent-memory-vault (233★) | Markdown 为源 + 轻量索引可重建、可验证写入、memoryctl CLI 形态 |

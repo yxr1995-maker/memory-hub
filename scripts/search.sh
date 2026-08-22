@@ -90,11 +90,12 @@ fi
 if [[ "$NO_FTS" == 0 && -f "$DB" ]]; then
   # 查询词拆分：trigram 需要 3+ 字符的词；短词（<3 字符）单独忽略或走 rg
   # 中文分词适配：trigram 索引按 3 字符滑窗建词，查询整句作单词无法命中。
-  # 对每个 >=3 字符的词产出 3-gram 滑窗子串，OR 拼接让 trigram 索引真正生效。
+  # 对每个 >=3 字符的词产出 3-gram 滑窗子串，并全部匹配以还原完整词；
+  # bm25 仅用于已匹配候选的排序，不能用低分阈值过滤由单个公共 3-gram 造成的误命中。
   ngram() {
     local s="$1" out="" i
     for ((i = 0; i < ${#s} - 2; i++)); do
-      out="${out:+$out OR }${s:i:3}"
+      out="${out:+$out AND }${s:i:3}"
     done
     printf '%s' "$out"
   }
@@ -107,7 +108,7 @@ if [[ "$NO_FTS" == 0 && -f "$DB" ]]; then
         W_S="$(printf '%s' "$w2" | sed 's/[*|&~()]/ /g; s/"/""/g; s/  */ /g; s/^ //; s/ $//')"
         if [[ -n "$W_S" ]]; then
           G="$(ngram "$W_S")"
-          [[ -n "$G" ]] && TERMS="${TERMS:+$TERMS OR }$G"
+          [[ -n "$G" ]] && TERMS="${TERMS:+$TERMS AND }($G)"
         fi
       fi
     done
@@ -127,6 +128,9 @@ if [[ "$NO_FTS" == 0 && -f "$DB" ]]; then
   fi
 fi
 
+# --no-fallback 是 FTS-only 模式；短词不会生成 trigram 查询，也不得改走 rg。
+[[ "$NOFALLBACK" == 1 ]] && exit 0
+
 # —— rg 关键词检索 ——
 # rg -g 排除 glob 需 **/ 前缀匹配任意深度目录（!raw/** 格式错误，raw/ 从未被真正排除）
 EXCLUDES=(-g '!**/raw/**' -g '!**/_legacy-para/**')
@@ -138,7 +142,7 @@ rg -i -l "$Q" "$WIKI" -g '*.md' "${EXCLUDES[@]+"${EXCLUDES[@]}"}" >/dev/null 2>&
 
 rg -i -c "$Q" "$WIKI" -g '*.md' "${EXCLUDES[@]+"${EXCLUDES[@]}"}" 2>/dev/null \
   | sort -t: -k2 -rn \
-  | head -"$TOP" \
+  | awk -v top="$TOP" 'NR <= top' \
   | while IFS=: read -r f c; do
       rel="${f#$WIKI/}"
       echo "[$c 处] $rel"

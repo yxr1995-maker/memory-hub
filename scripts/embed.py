@@ -13,7 +13,6 @@ import math
 import os
 import sqlite3
 import time
-from pathlib import Path
 import struct
 import sys
 from pathlib import Path
@@ -23,6 +22,9 @@ DATA_DIR = Path(os.environ.get("MEMORY_HUB_DATA", str(Path.home() / ".memory-hub
 DB = DATA_DIR / "index.db"
 WIKI = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki")))
 MODEL_NAME = os.environ.get("MEMORY_HUB_EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+FASTEMBED_CACHE_PATH = Path(
+    os.environ.get("FASTEMBED_CACHE_PATH", str(Path.home() / ".cache" / "fastembed"))
+)
 
 # 与 index.sh 相同的排除规则
 EXCLUDES = ("/raw/", "/_legacy-para/", "/_archive/", "/.git/")
@@ -31,7 +33,7 @@ EXCLUDES = ("/raw/", "/_legacy-para/", "/_archive/", "/.git/")
 def load_model():
     from fastembed import TextEmbedding
 
-    return TextEmbedding(MODEL_NAME)
+    return TextEmbedding(MODEL_NAME, cache_dir=str(FASTEMBED_CACHE_PATH))
 
 
 def pk_get_batch(items, n=32):

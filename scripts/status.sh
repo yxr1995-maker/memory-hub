@@ -7,8 +7,9 @@ STAGING="$HUB_DIR/staging"
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 SESSIONS_DIR="${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions}"
 
-echo "== memory-hub status ($(date '+%Y-%m-%d %H:%M:%S')) =="
+source "$HUB_DIR/scripts/lib.sh"
 
+echo "== memory-hub status ($(date '+%Y-%m-%d %H:%M:%S')) =="
 # 1. Codex 会话
 if [[ -d "$SESSIONS_DIR" ]]; then
   N_FILES="$(find "$SESSIONS_DIR" -type f -name '*.jsonl' -mtime -3 2>/dev/null | wc -l | tr -d ' ')"
@@ -20,7 +21,6 @@ if [[ -d "$SESSIONS_DIR" ]]; then
 else
   echo "Codex会话: 未找到 $SESSIONS_DIR"
 fi
-
 # 2. staging 观察
 N_OBS="$(ls "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ')"
 echo "staging观察文件: ${N_OBS}"
@@ -34,38 +34,14 @@ LATEST_OBS="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || tru
 if [[ -n "${LATEST_OBS:-}" ]]; then
   echo "  最新观察: $(basename "$LATEST_OBS") ($(wc -l < "$LATEST_OBS" | tr -d ' ') 条)"
 fi
-
 # 3. ~/llm-wiki
 if [[ -d "$WIKI" ]]; then
   N_PAGES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
   echo "llm-wiki页面: ${N_PAGES}"
   # wiki 健康摘要
-  TOKEN_HITS="$(python3 - "$WIKI" <<'PY'
-import pathlib, re, sys
-wiki = pathlib.Path(sys.argv[1])
-patterns = [
-    re.compile(r'Bearer\s+\S+'),
-    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
-    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
-]
-doc_markers = [
-    re.compile(r'--bearer-token-env-var'),
-    re.compile(r'Bearer token', re.I),
-]
-hits = 0
-for p in wiki.rglob('*.md'):
-    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
-        continue
-    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
-        if any(m.search(line) for m in doc_markers):
-            continue
-        if any(pat.search(line) for pat in patterns):
-            hits += 1
-            break
-print(hits)
-PY
-)"
-  DEAD_RES="$(cd "$WIKI" && python3 .scripts/fix_deadlinks.py 2>&1)"
+  TOKEN_RES="$(python3 "$HUB_DIR/scripts/verify_tokens.py" "$WIKI" || true)"
+  TOKEN_HITS="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2)"
+  DEAD_RES="$(cd "$WIKI" && python3 .scripts/fix_deadlinks.py 2>&1 || true)"
   DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^未解\/多候选:/ {print $2}')"
   RAW_DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^raw 区死链:/ {print $2}')"
   MH_N="$(find "$WIKI/concepts" "$WIKI/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
@@ -78,7 +54,6 @@ PY
 else
   echo "llm-wiki: 未找到 $WIKI"
 fi
-
 # 4. claude-mem DB
 CM_DB="${CLAUDE_MEM_DB:-$HOME/.claude-mem/data/claude-mem.db}"
 if [[ -f "$CM_DB" ]]; then
@@ -87,7 +62,6 @@ if [[ -f "$CM_DB" ]]; then
 else
   echo "claude-mem: 未安装/不可用"
 fi
-
 # 5. 本地 LLM 代理
 if curl -s --max-time 2 http://127.0.0.1:10100/v1/models >/dev/null 2>&1; then
   echo "LLM代理(127.0.0.1:10100): 可用"

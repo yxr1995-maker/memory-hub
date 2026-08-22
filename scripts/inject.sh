@@ -13,6 +13,7 @@ MARKER_END="<!-- memctl-memory-end -->"
 
 usage() {
   echo "用法: inject.sh [--apply] [--file <AGENTS.md>]"
+  echo "  --project <name>  仅注入该 project 的本会话观察（缺省自动推断）"
   echo "  默认输出记忆上下文到 stdout; --apply 写入 --file 指定文件（MARKER 区段）"
   exit 0
 }
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=1 ;;
     --file) TARGET="$2"; shift ;;
+    --project) PROJECT="$2"; shift ;;
     --help|-h) usage ;;
     *) echo "未知参数: $1" >&2; usage ;;
   esac
@@ -47,10 +49,23 @@ OUT="$(mktemp)"
     echo "- 知识库不存在"
   fi
   echo ""
-  echo "## 最近采集观察（staging）"
-  LATEST="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || true)"
-  if [[ -n "${LATEST:-}" ]]; then
-    jq -sr '.[0:10][] | "- [\(.id // "rt")] \(.text | .[0:100])"' "$LATEST" 2>/dev/null | sed 's/\\n/ /g'
+  # 本会话观察：仅日期命名 observations-20*.jsonl（排除 realtime/test）参与推断与筛选
+  LATEST="$(ls -t "$STAGING"/observations-20*.jsonl 2>/dev/null | head -1 || true)"
+  if [[ -n "${PROJECT:-}" ]]; then
+    X="$PROJECT"
+  elif [[ -n "$LATEST" ]]; then
+    X="$(jq -r '.project' "$LATEST" 2>/dev/null | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')"
+  else
+    X=""
+  fi
+  echo "## 本会话观察（staging, project: ${X:-}）"
+  if [[ -n "$LATEST" ]]; then
+    HITS="$(jq -r --arg p "$X" 'select(.project==$p) | "- [\(.id)] \(.text | .[0:100])"' "$LATEST" 2>/dev/null | head -8 | sed 's/\\n/ /g')"
+    if [[ -n "$HITS" ]]; then
+      printf '%s\n' "$HITS"
+    else
+      echo "- 暂无本会话观察（project: ${X}）"
+    fi
   else
     echo "- 暂无（先运行 capture）"
   fi

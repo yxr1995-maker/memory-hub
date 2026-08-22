@@ -13,6 +13,7 @@ trap 'timing_end publish "$?"' EXIT
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 APPLY=0
 COMMIT=0
+ACCEPT_CANDIDATE=""
 
 # 判断页面是否 memoryhub 蒸馏页
 is_memoryhub() {
@@ -36,10 +37,23 @@ type_dir() {
   esac
 }
 
+candidate_target() {
+  local f="$1" rel
+  [[ "$(grep -c '^conflict_target:' "$f")" == 1 ]] || return 1
+  rel="$(sed -n 's/^conflict_target: *//p' "$f" | tr -d "'")"
+  [[ -n "$rel" && "$rel" != /* && "/$rel/" != *'/../'* && "/$rel/" != *'/archive/'* ]] || return 1
+  printf '%s\n' "$rel"
+}
+
+replace_target() {
+  python3 "$HUB_DIR/scripts/secure_replace.py" "$WIKI" "$2" "$1"
+}
+
 usage() {
-  echo "用法: publish.sh [--apply] [--commit]"
+  echo "用法: publish.sh [--apply] [--commit] [--accept-candidate <slug>]"
   echo "  默认 dry-run: 预览待发布页面、frontmatter 校验、目录映射"
   echo "  --commit: --apply 基础上，在 ~/llm-wiki 中 git add + commit 本次发布内容"
+  echo "  --accept-candidate <slug>: 仅与 --apply 一起使用；确认后发布指定 candidate 并覆盖同名 memoryhub 页"
   exit 0
 }
 
@@ -48,13 +62,23 @@ while [[ $# -gt 0 ]]; do
     --apply) APPLY=1 ;;
     --dry-run) APPLY=0 ;;
     --commit) COMMIT=1 ;;
+    --accept-candidate) [[ $# -ge 2 ]] || { echo "错误: --accept-candidate 需要 slug" >&2; exit 2; }; ACCEPT_CANDIDATE="$2"; shift ;;
     --help|-h) usage ;;
     *) echo "未知参数: $1" >&2; usage ;;
   esac
   shift
 done
 
+[[ -z "$ACCEPT_CANDIDATE" || "$APPLY" == 1 ]] || { echo "错误: --accept-candidate 需要 --apply" >&2; exit 2; }
+
 [[ -d "$WIKI" ]] || { echo "错误: 知识库不存在: $WIKI (WIKI_PATH=$WIKI)" >&2; exit 1; }
+
+if [[ -n "$ACCEPT_CANDIDATE" ]]; then
+  [[ "$ACCEPT_CANDIDATE" != */* && "$ACCEPT_CANDIDATE" == *.md && -f "$PAGES_DIR/$ACCEPT_CANDIDATE" ]] \
+    || { echo "错误: candidate 不存在于 staging/pages: $ACCEPT_CANDIDATE" >&2; exit 2; }
+  [[ "$(sed -n 's/^status: *//p' "$PAGES_DIR/$ACCEPT_CANDIDATE" | tr -d "'")" == "candidate" ]] \
+    || { echo "错误: 不是 candidate: $ACCEPT_CANDIDATE" >&2; exit 2; }
+fi
 
 shopt -s nullglob
 PAGES=("$PAGES_DIR"/*.md)
@@ -109,9 +133,24 @@ for f in "${VALID_PAGES[@]}"; do
   TARGET="$WIKI/$DIR/$SLUG"
   MH=0
   is_memoryhub "$f" && MH=1
+  STAT="$(sed -n 's/^status: *//p' "$f" | tr -d "'")"
+  if [[ "$STAT" == "candidate" && "$SLUG" != "$ACCEPT_CANDIDATE" ]]; then
+    echo "publish: [conflict, 未发布] $DIR/$SLUG (status: candidate, 见 reports/conflicts/)"
+    continue
+  fi
+  if [[ "$STAT" == "candidate" ]]; then
+    [[ "$MH" == 1 ]] || { echo "错误: candidate 必须是 memoryhub 页面: $SLUG" >&2; exit 2; }
+    REL_TARGET="$(candidate_target "$f")" || { echo "错误: candidate conflict_target 非法: $SLUG" >&2; exit 2; }
+    TARGET="$WIKI/$REL_TARGET"
+    echo "publish: [candidate, 已确认] $TARGET"
+  fi
   if [[ "$MH" == 1 ]]; then
-    mkdir -p "$WIKI/$DIR"
-    cp "$f" "$TARGET"
+    if [[ "$STAT" == "candidate" ]]; then
+      replace_target "$f" "$REL_TARGET" || { echo "错误: candidate 覆盖失败: $SLUG" >&2; exit 1; }
+    else
+      mkdir -p "$WIKI/$DIR"
+      cp "$f" "$TARGET"
+    fi
     mv "$f" "$STAGING/published/$SLUG"
     COPIED=$((COPIED + 1))
     echo "publish: + $DIR/$SLUG (memoryhub, 覆盖更新)"

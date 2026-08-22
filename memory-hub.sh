@@ -14,9 +14,11 @@ echo "  distill [--llm]     蒸馏: → staging/pages/（L0摘要/L1概述/L2明
   echo "  publish [--apply]   发布: → ~/llm-wiki 按 type 映射目录 + index/log（默认 dry-run）"
   echo "  search \"词\" [--top N] [--raw] [--all] [--gbrain]  检索 ~/llm-wiki"
   echo "  index [--with-raw]    索引 ~/llm-wiki → SQLite FTS5（trigram 中文分词）"
-  echo "  ask \"问题\" [--top N]   知识库问答（FTS 检索 + 免费模型生成）"
-  echo "  inject [--apply --file X]  记忆上下文注入（默认输出 stdout）"
-  echo "  status              健康检查/统计"
+ echo "  ask \"问题\" [--top N]   知识库问答（FTS 检索 + 免费模型生成）"
+ echo "  inject [--apply --file X]  记忆上下文注入（默认输出 stdout）"
+ echo "  eval [--top N]       自评测基准(F3): 跑 evaluation/golden.jsonl 算 hit@N/MRR → reports/eval-<date>.md"
+  echo "  archive [--keep N] [--apply]  归档已消费的 observation 文件(F4): → staging/archive/（可恢复）"
+ echo "  status              健康检查/统计"
   echo "  verify              静态漂移校验（toml/hook/MCP/DB，CI 用）"
   echo "  metrics             输出 Prometheus 文本指标"
   echo "  serve [--port N]    启动 REST 查询服务（/search /ask /status /metrics）"
@@ -43,9 +45,11 @@ case "$CMD" in
   publish) exec "$HUB_DIR/scripts/publish.sh" "$@" ;;
   search) exec "$HUB_DIR/scripts/search.sh" "$@" ;;
   index) exec "$HUB_DIR/scripts/index.sh" "$@" ;;
-  ask) exec "$HUB_DIR/scripts/ask.sh" "$@" ;;
-  inject) exec "$HUB_DIR/scripts/inject.sh" "$@" ;;
-  status) exec "$HUB_DIR/scripts/status.sh" "$@" ;;
+ ask) exec "$HUB_DIR/scripts/ask.sh" "$@" ;;
+ inject) exec "$HUB_DIR/scripts/inject.sh" "$@" ;;
+ eval) exec python3 "$HUB_DIR/scripts/eval.py" "$@" ;;
+  archive) exec "$HUB_DIR/scripts/archive.sh" "$@" ;;
+ status) exec "$HUB_DIR/scripts/status.sh" "$@" ;;
   verify) exec "$HUB_DIR/scripts/verify.sh" "$@" ;;
   metrics) exec "$HUB_DIR/scripts/metrics.sh" "$@" ;;
   serve) exec python3 "$HUB_DIR/scripts/server.py" "$@" ;;
@@ -108,8 +112,14 @@ case "$CMD" in
     python3 "$HUB_DIR/scripts/embed.py" index 2>&1 | tail -1
     # 自动双链：蒸馏页在发布前补足有效出链（L1 tags/title 规则 + L2 embed 语义，缺一则降级）
     python3 "$HUB_DIR/scripts/autolink.py" --apply
-    "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
-    echo "== memory-hub: 完成 =="
+   "$HUB_DIR/scripts/publish.sh" $PUBLISH_ARGS
+    # F4: publish 成功后归档已消费的观察文件（仅日期命名，绝不碰 realtime/test）
+    if [[ "$APPLY" == 1 ]]; then
+      "$HUB_DIR/scripts/archive.sh" --apply >/dev/null 2>&1 || true
+    else
+      "$HUB_DIR/scripts/archive.sh" >/dev/null 2>&1 || true
+    fi
+   echo "== memory-hub: 完成 =="
     ;;
   *) echo "未知命令: $CMD" >&2; usage; exit 2 ;;
 esac

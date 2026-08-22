@@ -6,6 +6,8 @@ set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING="$HUB_DIR/staging"
 PAGES_DIR="$STAGING/pages"
+WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
+CONFLICTS_DIR="$HUB_DIR/reports/conflicts"
 source "$HUB_DIR/scripts/lib.sh"
 timing_begin
 trap 'timing_end distill "$?"' EXIT
@@ -68,8 +70,8 @@ llm_summary() {
 PAGES=0
 for p in $(jq -r '.project' "$IN" | sort -u); do
   [[ -n "$p" ]] || continue
-  safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
-  [[ -n "$safe_p" ]] || safe_p="misc"
+safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
+[[ -n "$safe_p" ]] || safe_p="misc"
 
   # memoryhub 蒸馏产物统一为 note，confidence low，由 wiki-distill 二次提炼后再分类
   PAGE_TYPE="note"
@@ -95,6 +97,10 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
     TITLE_PART=""; [[ $NCHUNKS -gt 1 ]] && TITLE_PART="（第 $((i + 1))/$NCHUNKS 部分，$START-${END}）"
     SLUG="$DATE-memoryhub-$safe_p$CHUNK_SUFFIX"
     FILE="$PAGES_DIR/$SLUG.md"
+    # F1: only the exact dated target is a conflict; historical project pages stay append-only.
+    CONFLICT_TARGET="drafts/memoryhub/$SLUG.md"
+    CONFLICT="$WIKI/$CONFLICT_TARGET"
+    [[ -f "$CONFLICT" && ! -L "$CONFLICT" ]] || { CONFLICT=""; CONFLICT_TARGET=""; }
     NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 
     # L0 摘要: --llm 时用 AI，否则取组内第一条观察文本前 100 字符
@@ -118,8 +124,11 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
       echo "sources:"
       echo "  - codex://sessions"
       echo "confidence: low"
-      echo "contested: false"
-      echo "status: fresh"
+      STATUS="fresh"; CONTESTED="false"
+      if [[ -n "$CONFLICT" ]]; then STATUS="candidate"; CONTESTED="true"; fi
+      echo "contested: $CONTESTED"
+      echo "status: $STATUS"
+      [[ -z "$CONFLICT_TARGET" ]] || echo "conflict_target: '$(yaml_sq "$CONFLICT_TARGET")'"
       echo "last_verified: '$(date +%Y-%m-%d)'"
       echo "---"
       echo ""
@@ -169,6 +178,26 @@ for p in $(jq -r '.project' "$IN" | sort -u); do
     } > "$FILE"
     PAGES=$((PAGES + 1))
     echo "distill: $FILE (第 $START-$END 条 / 共 $TOTAL_N)"
+    if [[ -n "$CONFLICT" ]]; then
+      mkdir -p "$CONFLICTS_DIR"
+      CF="$CONFLICTS_DIR/$SLUG.md"
+      {
+        echo "# conflict: $SLUG"
+        echo ""
+        echo "- 候选: staging/pages/$SLUG.md (status: candidate, contested: true)"
+        echo "- 已存在: $CONFLICT"
+        echo "- 发现时间: $(date '+%Y-%m-%d %H:%M')"
+        echo ""
+        echo "候选摘要:"
+        grep '^abstract:' "$FILE" | head -1 | sed "s/^abstract: //"
+        echo ""
+        echo "已存在页摘要:"
+        grep '^abstract:' "$CONFLICT" | head -1 | sed "s/^abstract: //"
+        echo ""
+        echo "处理: 人工确认候选可覆盖已存在页后运行: memory-hub.sh publish --apply --accept-candidate $SLUG"
+      } > "$CF"
+      echo "distill: [conflict] $SLUG -> $CF"
+    fi
   done
 done
 

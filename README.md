@@ -2,7 +2,7 @@
 
 **目标：完全替换 gbrain 和 claude-mem。** 自包含（bash + jq + sqlite FTS5），零常驻进程，markdown 为源，索引可随时重建。
 
-自动采集 Codex 会话 → 分层蒸馏 → 发布到 `~/llm-wiki`（Obsidian 浏览 + gbrain 检索）→ 检索 / 注入 / 状态，一个 CLI 全闭环，本地运行、零外部依赖。
+自动采集 Codex 会话 → 分层蒸馏 → 发布到 `~/llm-wiki`（Obsidian 浏览 + FTS5/rg/向量检索）→ 检索 / 注入 / 状态，一个 CLI 全闭环，本地运行、零外部依赖。
 
 ```
 ~/.codex/sessions/**/*.jsonl  ──capture──▶  staging/observations-*.jsonl
@@ -11,11 +11,11 @@
                                          staging/pages/*.md
                                                │  publish（frontmatter校验 + type→目录映射）
                                                ▼
-                                         ~/llm-wiki/   ← Obsidian 浏览 / gbrain 检索
+                                         ~/llm-wiki/   ← Obsidian 浏览 / FTS5+rg+向量检索
                                                │
               ┌────────────────┬───────────────┼───────────────┐
               ▼                ▼               ▼               ▼
-          search (rg/gbrain)  inject (AGENTS.md)  status       watch（定时）
+          search (FTS5/rg/fuse)  inject (AGENTS.md)  status       watch（定时）
 ```
 
 ## 快速开始
@@ -55,7 +55,7 @@
 | claude-mem（本地 v13.12.4） | transcript watch 事件模型、observations 字段（role/type/text）、AGENTS.md 注入、status 健康检查 |
 | gbrain（本地 0.42.73.2） | 5 维知识结构、frontmatter 规范、双标注（✅/⚠️/❓）、出链、index+log |
 | langchain-ai/openwiki（14.8k★） | 确定性采集→合成两阶段、OKF 风格 frontmatter、connector 扩展 |
-| volcengine/OpenViking（28.1k★） | L0/L1/L2 三层加载省 token、会话→长期记忆 |
+| volcengine/OpenViking（31.2k★，2026-08-21 实测） | L0/L1/L2 三层加载省 token、会话→长期记忆；定位"Self-evolving Context Database"，统一 Agent Memory / 知识 RAG / Skills |
 | TencentDB-Agent-Memory（19.2k★） | 会话→原子→场景分层蒸馏、资产与框架解耦 |
 | agent-memory-vault（233★） | Markdown 为源 + 索引可重建、可验证写入 |
 

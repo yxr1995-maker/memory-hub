@@ -22,6 +22,13 @@ timing_end() {
   _timing_active=0
 }
 
+
+scan_wiki_tokens() {
+  local wiki_dir="${1:-$HOME/llm-wiki}"
+  local extra_args=("${@:2}")
+  python3 "$HUB_DIR/scripts/verify_tokens.py" "${extra_args[@]}" "$wiki_dir"
+}
+
 # sanitize_text: 脱敏文本
 sanitize_text() {
   local text="${1:-}"

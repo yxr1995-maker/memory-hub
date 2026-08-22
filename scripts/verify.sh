@@ -138,32 +138,7 @@ fi
 
 # 5. wiki 内容硬检查
 WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
-TOKEN_RES="$(python3 - "$WIKI_DIR" <<'PY'
-import pathlib, re, sys
-wiki = pathlib.Path(sys.argv[1])
-patterns = [
-    re.compile(r'Bearer\s+\S+'),
-    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
-    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
-]
-doc_markers = [
-    re.compile(r'--bearer-token-env-var'),
-    re.compile(r'Bearer token', re.I),
-]
-hits = 0
-for p in wiki.rglob('*.md'):
-    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
-        continue
-    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
-        if any(m.search(line) for m in doc_markers):
-            continue
-        if any(pat.search(line) for pat in patterns):
-            hits += 1
-            print('BAD', p.relative_to(wiki))
-            break
-print(f'token_hits={hits}')
-PY
-)"
+TOKEN_RES="$(python3 "$HUB_DIR/scripts/verify_tokens.py" "$WIKI_DIR" || true)"
 TOKEN_N="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2)"
 if echo "$TOKEN_RES" | grep -q '^BAD'; then
   echo "$TOKEN_RES" | grep '^BAD' | sed 's/^/  /'
@@ -173,7 +148,7 @@ else
 fi
 
 # 死链：使用 fix_deadlinks.py --dry-run 的"未解/多候选"计数（已考虑别名/大小写/下划线归一）
-DEAD_RES="$(cd "$WIKI_DIR" && python3 .scripts/fix_deadlinks.py 2>&1)"
+DEAD_RES="$(cd "$WIKI_DIR" && python3 .scripts/fix_deadlinks.py 2>&1 || true)"
 DEAD_N="$(echo "$DEAD_RES" | python3 -c "import sys,re; m=re.search(r'未解/多候选:\s*(\d+)', sys.stdin.read()); print(m.group(1) if m else 999)")"
 RAW_DEAD_N="$(echo "$DEAD_RES" | python3 -c "import sys,re; m=re.search(r'raw 区死链:\s*(\d+)', sys.stdin.read()); print(m.group(1) if m else 0)")"
 if [[ -z "${DEAD_N// }" ]]; then DEAD_N=999; fi

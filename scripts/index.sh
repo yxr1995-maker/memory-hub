@@ -31,51 +31,78 @@ done
 [[ -d "$WIKI" ]] || { echo "错误: 知识库不存在: $WIKI" >&2; exit 1; }
 mkdir -p "$DATA_DIR"
 
-# 排除规则
-if [[ "$WITH_RAW" == 1 ]]; then
-  EXCLUDES=(-not -path '*/_legacy-para/*' -not -path '*/_archive/*')
-else
-  EXCLUDES=(-not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*')
-fi
+TOTAL_INSERTED="$(python3 - "$WIKI" "$DB" "$WITH_RAW" <<'PY'
+import os
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
 
-sqlite3 "$DB" <<'SQL'
-DROP TABLE IF EXISTS pages;
-CREATE VIRTUAL TABLE pages USING fts5(
-  path, title, type, tags, abstract, content,
-  tokenize='trigram'
-);
-SQL
-
-# 单进程 + 单事务批量 INSERT（性能优化：3663 页从 ~3 分钟 → 秒级；原实现每页单独启动 sqlite3 进程）
-COUNT=0
-{
-  echo "BEGIN;"
-  while IFS= read -r -d '' f; do
-    rel="${f#$WIKI/}"
-    title="$(awk -F': ' '/^title:/{sub(/^title: /,""); print; exit}' "$f" 2>/dev/null | tr -d "'")"
-    ptype="$(awk -F': ' '/^type:/{sub(/^type: /,""); print; exit}' "$f" 2>/dev/null | tr -d "'")"
-    ptags="$(sed -n '/^tags:/,/^[^ -]/p' "$f" 2>/dev/null | sed -n 's/^  - //p' | tr '\n' ' ')"
-    pabstract="$(awk -F': ' '/^abstract:/{sub(/^abstract: /,""); print; exit}' "$f" 2>/dev/null | tr -d "'")"
-    # 正文：去掉 frontmatter（第一个 --- 到第二个 --- 之间）
-    body="$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2 || /^[^-]/ && fm==0 {print}' "$f" 2>/dev/null)"
-    [[ -n "$title" ]] || title="$(basename "$f" .md)"
-    [[ -n "$ptype" ]] || ptype="unknown"
-
-    # SQL 注入防护：单引号转义
-    rel_s="$(printf '%s' "$rel" | sed "s/'/''/g")"
-    title_s="$(printf '%s' "$title" | sed "s/'/''/g")"
-    ptype_s="$(printf '%s' "$ptype" | sed "s/'/''/g")"
-    ptags_s="$(printf '%s' "$ptags" | sed "s/'/''/g")"
-    pabstract_s="$(printf '%s' "$pabstract" | sed "s/'/''/g")"
-    body_s="$(printf '%s' "$body" | sed "s/'/''/g")"
-
-    printf "INSERT INTO pages(path,title,type,tags,abstract,content) VALUES('%s','%s','%s','%s','%s','%s');\n" \
-      "$rel_s" "$title_s" "$ptype_s" "$ptags_s" "$pabstract_s" "$body_s"
-  done < <(find "$WIKI" -name '*.md' "${EXCLUDES[@]+"${EXCLUDES[@]}"}" -print0 2>/dev/null)
-  echo "COMMIT;"
-} | sqlite3 "$DB"
-
-# COUNT 在 done < <(find) 子 shell 里会丢失，改用 sqlite3 查询总数
-TOTAL_INSERTED="$(sqlite3 "$DB" 'SELECT count(*) FROM pages;' 2>/dev/null || echo 0)"
+wiki, db, with_raw = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3] == "1"
+fd, tmp = tempfile.mkstemp(prefix=".index.", suffix=".db", dir=db.parent)
+os.close(fd)
+try:
+    out = sqlite3.connect(tmp)
+    out.executescript("""
+        CREATE VIRTUAL TABLE pages USING fts5(
+          path, title, type, tags, abstract, content, tokenize='trigram');
+        CREATE TABLE meta(path TEXT PRIMARY KEY, updated TEXT, last_verified TEXT);
+        CREATE TABLE vec(path TEXT PRIMARY KEY, title TEXT, dim INT, v BLOB);
+    """)
+    rows = []
+    metadata = []
+    excluded = {"_legacy-para", "_archive"} | (set() if with_raw else {"raw"})
+    fail_after = int(os.environ.get("MEMORY_HUB_INDEX_FAIL_AFTER", "0"))
+    for path in wiki.rglob("*.md"):
+        rel = path.relative_to(wiki)
+        if excluded.intersection(rel.parts):
+            continue
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        lines = raw.splitlines()
+        fields = {}
+        tags = []
+        body = raw
+        if lines and lines[0].strip() == "---":
+            end = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+            if end is not None:
+                current = ""
+                for line in lines[1:end]:
+                    if ":" in line and not line.startswith((" ", "-")):
+                        current, value = line.split(":", 1)
+                        fields[current] = value.strip().strip("'")
+                    elif current == "tags" and line.startswith("  - "):
+                        tags.append(line[4:])
+                body = "\n".join(lines[end + 1:])
+        rel_s = str(rel)
+        rows.append((rel_s, fields.get("title") or path.stem,
+                     fields.get("type") or "unknown", " ".join(tags),
+                     fields.get("abstract", ""), body))
+        metadata.append((rel_s, fields.get("updated", ""), fields.get("last_verified", "")))
+        if fail_after and len(rows) >= fail_after:
+            raise RuntimeError("injected index failure")
+    with out:
+        out.executemany("INSERT INTO pages VALUES(?,?,?,?,?,?)", rows)
+        out.executemany("INSERT INTO meta VALUES(?,?,?)", metadata)
+        if db.is_file():
+            out.execute("ATTACH DATABASE ? AS old", (str(db),))
+            if out.execute("SELECT 1 FROM old.sqlite_master WHERE type='table' AND name='vec'").fetchone():
+                out.execute("INSERT INTO vec SELECT v.* FROM old.vec v JOIN pages p ON p.path=v.path")
+    pages, meta = out.execute("SELECT count(*) FROM pages").fetchone()[0], out.execute("SELECT count(*) FROM meta").fetchone()[0]
+    stale = out.execute("SELECT count(*) FROM vec v LEFT JOIN pages p ON p.path=v.path WHERE p.path IS NULL").fetchone()[0]
+    if pages != meta or stale:
+        raise RuntimeError(f"inconsistent index: pages={pages} meta={meta} stale_vec={stale}")
+    out.execute("PRAGMA optimize")
+    out.close()
+    os.replace(tmp, db)
+    print(pages)
+except Exception:
+    try:
+        out.close()
+    except Exception:
+        pass
+    os.unlink(tmp)
+    raise
+PY
+)"
 echo "index: 索引完成，${TOTAL_INSERTED} 页 -> $DB"
 sqlite3 "$DB" "SELECT count(*) AS total, min(length(content)) AS min_len, max(length(content)) AS max_len, avg(length(content)) AS avg_len FROM pages;" | awk -F'|' '{printf "  统计: %s 页, 内容长度 %s~%s (均值 %s)\n", $1, $2, $3, int($4)}'
