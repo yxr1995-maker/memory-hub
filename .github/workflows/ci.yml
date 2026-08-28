@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Unit Tests & Static Verification
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+        python-version: [ '3.11', '3.12' ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep jq sqlite3
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ripgrep jq sqlite3 || true
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile scripts/*.py tests/*.py
+
+      - name: Check Bash syntax
+        run: |
+          bash -n memory-hub.sh scripts/*.sh tests/*.sh
+
+      - name: Run Python unit tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Run status & verify consistency tests
+        run: |
+          bash tests/test_status_verify_consistency.sh

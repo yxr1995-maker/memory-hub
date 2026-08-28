@@ -15,6 +15,7 @@ echo "  distill [--llm]     蒸馏: → staging/pages/（L0摘要/L1概述/L2明
   echo "  search \"词\" [--top N] [--raw] [--all] [--gbrain]  检索 ~/llm-wiki"
   echo "  index [--with-raw]    索引 ~/llm-wiki → SQLite FTS5（trigram 中文分词）"
  echo "  ask \"问题\" [--top N]   知识库问答（FTS 检索 + 免费模型生成）"
+  echo "  export [--project X] [--type Y] [--format jsonl|json|markdown] 结构化导出知识库"
  echo "  inject [--apply --file X]  记忆上下文注入（默认输出 stdout）"
  echo "  eval [--top N]       自评测基准(F3): 跑 evaluation/golden.jsonl 算 hit@N/MRR → reports/eval-<date>.md"
   echo "  archive [--keep N] [--apply]  归档已消费的 observation 文件(F4): → staging/archive/（可恢复）"
@@ -46,6 +47,7 @@ case "$CMD" in
   search) exec "$HUB_DIR/scripts/search.sh" "$@" ;;
   index) exec "$HUB_DIR/scripts/index.sh" "$@" ;;
  ask) exec "$HUB_DIR/scripts/ask.sh" "$@" ;;
+ export) exec python3 "$HUB_DIR/scripts/export.py" "$@" ;;
  inject) exec "$HUB_DIR/scripts/inject.sh" "$@" ;;
  eval) exec python3 "$HUB_DIR/scripts/eval.py" "$@" ;;
   archive) exec "$HUB_DIR/scripts/archive.sh" "$@" ;;
