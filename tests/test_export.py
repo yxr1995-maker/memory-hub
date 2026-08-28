@@ -3,7 +3,7 @@ import pathlib
 import tempfile
 import unittest
 
-from scripts.export import collect_pages, export_pages, parse_frontmatter
+from scripts.export import collect_pages, export_pages, extract_tiered_content, parse_frontmatter
 
 
 class TestExport(unittest.TestCase):
@@ -11,7 +11,6 @@ class TestExport(unittest.TestCase):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.wiki_path = pathlib.Path(self.tmp_dir.name)
 
-        # 创建模拟知识库目录结构和页面
         (self.wiki_path / "concepts").mkdir(parents=True, exist_ok=True)
         (self.wiki_path / "decisions").mkdir(parents=True, exist_ok=True)
         (self.wiki_path / "raw").mkdir(parents=True, exist_ok=True)
@@ -22,12 +21,17 @@ class TestExport(unittest.TestCase):
             "title: Demo Concept\n"
             "type: concept\n"
             "project: project-a\n"
+            'abstract: "This is a short L0 abstract."\n'
             'tags: ["agent", "memory"]\n'
             "created: 2026-08-20\n"
             "updated: 2026-08-28\n"
             "---\n\n"
             "# Demo Concept\n\n"
-            "This is a demo concept content.\n",
+            "## 概述 (L1)\n\n"
+            "This is the L1 overview section explaining the architecture.\n\n"
+            "## 观察明细 (L2)\n\n"
+            "- Observation 1: Details and raw tokens\n"
+            "- Observation 2: Full logs\n",
             encoding="utf-8",
         )
 
@@ -37,20 +41,19 @@ class TestExport(unittest.TestCase):
             "title: Demo Decision\n"
             "type: decision\n"
             "project: project-b\n"
+            'abstract: "L0 decision abstract"\n'
             'tags: ["architecture"]\n'
             "created: 2026-08-21\n"
             "updated: 2026-08-27\n"
             "---\n\n"
             "# Demo Decision\n\n"
-            "This is a decision rationale.\n",
+            "This is a decision rationale without explicit headers.\n",
             encoding="utf-8",
         )
 
-        # raw 目录下的文件应被忽略
         p_raw = self.wiki_path / "raw" / "ignored.md"
         p_raw.write_text("raw session dump", encoding="utf-8")
 
-        # index.md 与 log.md 索引文件应被忽略
         (self.wiki_path / "index.md").write_text("# Index", encoding="utf-8")
         (self.wiki_path / "log.md").write_text("# Log", encoding="utf-8")
 
@@ -88,6 +91,31 @@ class TestExport(unittest.TestCase):
         self.assertEqual(len(pages), 1)
         self.assertEqual(pages[0]["slug"], "demo-decision")
 
+    def test_extract_tiered_content(self):
+        fm = {"abstract": "Short L0 abstract"}
+        body = (
+            "# Title\n\n"
+            "## 概述 (L1)\n\nOverview content.\n\n"
+            "## 观察明细 (L2)\n\nDetail item 1.\nDetail item 2."
+        )
+        l0 = extract_tiered_content(fm, body, tier="l0")
+        self.assertEqual(l0, "Short L0 abstract")
+
+        l1 = extract_tiered_content(fm, body, tier="l1")
+        self.assertIn("Overview content.", l1)
+        self.assertNotIn("Detail item 1.", l1)
+
+        l2 = extract_tiered_content(fm, body, tier="l2")
+        self.assertIn("Detail item 1.", l2)
+        self.assertNotIn("Overview content.", l2)
+
+    def test_export_tiered_l0(self):
+        pages = collect_pages(self.wiki_path, tier="l0")
+        output = export_pages(pages, fmt="jsonl")
+        item0 = json.loads(output.splitlines()[0])
+        self.assertEqual(item0["tier"], "l0")
+        self.assertIn("abstract", item0)
+
     def test_export_jsonl(self):
         pages = collect_pages(self.wiki_path)
         output = export_pages(pages, fmt="jsonl")
@@ -96,7 +124,7 @@ class TestExport(unittest.TestCase):
         item0 = json.loads(lines[0])
         self.assertIn("slug", item0)
         self.assertIn("frontmatter", item0)
-        self.assertIn("body", item0)
+        self.assertIn("content", item0)
 
     def test_export_json(self):
         pages = collect_pages(self.wiki_path)

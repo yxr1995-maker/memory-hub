@@ -37,7 +37,7 @@
 | `eval [--top N]` | 自评测基准(F3+U2): 跑 `evaluation/golden.jsonl` 的 31 条「问题→预期页」对,算 hit@N 与 MRR,按 AML 四类 A/C/D/G 给出能力画像,写 `reports/eval-<date>.md` |
 | `archive [--keep N] [--apply]` | 归档已消费的观察文件(F4): `staging/observations-*.jsonl`(仅日期命名,不含 realtime/test) 除最新 N 份外全部移入 `staging/archive/`(可恢复,不 rm); 默认 dry-run; `run --apply` 成功后自动执行 |
 | `ask "问题" [--top N]` | 知识库问答（替代 gbrain ask）：FTS5 检索 + 免费模型生成（默认 sensenova/sensenova-6.8-flash-lite） |
-| `export [--project X] [--type Y]` | 结构化导出知识库页面为 JSONL / JSON / 合并 Markdown 归档，供外部工具、知识库备份或其他 Agent 消费 |
+| `export [--project X] [--type Y] [--tier l0|l1|l2|full]` | 结构化分层导出知识库页面为 JSONL / JSON / 合并 Markdown 归档，支持 L0/L1/L2 上下文深度裁剪（详见 [分层架构说明](docs/architecture-tiered-context.md)） |
 | `publish [--apply]` | `staging/pages` → `~/llm-wiki` 按 type 映射目录（decision→decisions/ 等）；默认 dry-run；frontmatter 五字段校验；永不覆盖已存在页面；`--apply` 更新 index.md/log.md（log 防重复） |
 | `search "词" [--top N] [--raw] [--all] [--gbrain]` | rg 全文检索（默认排除 raw/_legacy-para）；`--gbrain` 优先 gbrain 混合检索，失败回退 rg |
 | `search "词" --fuse [--top N] [--tau N]` | FTS5 bm25 + 向量 RRF 融合检索(F2)；中文 3-gram 滑窗拆词适配 trigram 索引；`--tau` 时间衰减天数(默认 90,`--tau 0` 关闭,新页优先)；type 加权: entity/concept ×1.8, atom/query/draft ×0.7 (hit@5 0.710→0.871) |
