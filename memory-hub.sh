@@ -75,7 +75,12 @@ case "$CMD" in
     python3 "$WIKI_DIR/.scripts/lint_triage.py" | tail -20
     printf '%s\n' "- $(date '+%Y-%m-%d %H:%M') memory-hub maintain 完成" >> "$WIKI_DIR/log.md"
     cd "$WIKI_DIR"
-    git diff --name-only | while read -r f; do git add -- "$f"; done
+    MODIFIED_FILES="$(git diff --name-only || true)"
+    if [[ -n "$MODIFIED_FILES" ]]; then
+      while IFS= read -r f; do
+        [[ -n "$f" ]] && git add -- "$f"
+      done <<< "$MODIFIED_FILES"
+    fi
     git add -- "$WIKI_DIR/log.md" "$WIKI_DIR/index.md" 2>/dev/null || true
     git commit -m "chore(wiki): memory-hub maintain" 2>/dev/null || true
     echo "== memory-hub maintain: 完成 =="

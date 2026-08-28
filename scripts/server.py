@@ -21,6 +21,7 @@
   GET    /api/observations?q=&project=&offset=&limit=  staging 原始观察（新→旧，分页）
 """
 import argparse
+import ipaddress
 import socket
 import glob
 import json
@@ -48,6 +49,57 @@ try:
     import yaml  # type: ignore
 except Exception:
     yaml = None
+
+
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer variant that binds an IPv6 sockaddr."""
+
+    address_family = socket.AF_INET6
+
+
+def resolve_loopback_bind_target(host: str, port: int) -> tuple[int, tuple]:
+    """Resolve *host* and return a sockaddr only when every result is loopback.
+
+    The resolved sockaddr is subsequently used directly for ``bind``. This
+    prevents a hostname from being checked as loopback and then resolving to a
+    different address when the HTTP server starts.
+    """
+    if not host or "\x00" in host:
+        raise ValueError("--host 必须是可解析的 loopback 地址（如 127.0.0.1、localhost 或 ::1）")
+    try:
+        results = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"--host 无法解析：{host!r}（仅允许 loopback 地址）") from exc
+
+    valid_results = []
+    rejected = []
+    for family, _socktype, _proto, _canonname, sockaddr in results:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            rejected.append(repr(sockaddr))
+            continue
+        address = sockaddr[0]
+        try:
+            is_loopback = ipaddress.ip_address(address).is_loopback
+        except ValueError:
+            is_loopback = False
+        if is_loopback:
+            valid_results.append((family, sockaddr))
+        else:
+            rejected.append(address)
+
+    if not valid_results or rejected:
+        resolved = ", ".join(rejected) or "无有效地址"
+        raise ValueError(
+            f"拒绝监听非 loopback 地址：{host!r} 解析为 {resolved}；"
+            "仅允许 127.0.0.1、localhost、::1 或其他纯 loopback 地址"
+        )
+    return valid_results[0]
+
+
+def create_loopback_server(family: int, sockaddr: tuple) -> ThreadingHTTPServer:
+    """Create an HTTP server for an already-validated loopback sockaddr."""
+    server_class = IPv6ThreadingHTTPServer if family == socket.AF_INET6 else ThreadingHTTPServer
+    return server_class(sockaddr, Handler)
 
 
 def run_script(name: str, *args: str, timeout: int = 60) -> tuple[str, int]:
@@ -865,10 +917,17 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ap = argparse.ArgumentParser(description="memory-hub REST server")
     ap.add_argument("--port", type=int, default=8787)
-    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="仅允许 loopback 地址（默认：127.0.0.1）")
     args = ap.parse_args()
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"memory-hub REST: http://{args.host}:{args.port}  (Ctrl-C 退出)")
+    try:
+        family, sockaddr = resolve_loopback_bind_target(args.host, args.port)
+    except ValueError as exc:
+        ap.error(str(exc))
+    srv = create_loopback_server(family, sockaddr)
+    bound_host, bound_port = srv.server_address[:2]
+    display_host = f"[{bound_host}]" if family == socket.AF_INET6 else bound_host
+    print(f"memory-hub REST: http://{display_host}:{bound_port}  (Ctrl-C 退出)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

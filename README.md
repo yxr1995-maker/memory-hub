@@ -1,8 +1,8 @@
 # memory-hub — All-in-One Agent 记忆 CLI
 
-**目标：完全替换 gbrain 和 claude-mem。** 自包含（bash + jq + sqlite FTS5），零常驻进程，markdown 为源，索引可随时重建。
+**目标：完全替换 gbrain 和 claude-mem。** 以 Markdown 为源、索引可随时重建；核心 CLI 不需要常驻服务，但需要下列本地命令行依赖。
 
-自动采集 Codex 会话 → 分层蒸馏 → 发布到 `~/llm-wiki`（Obsidian 浏览 + FTS5/rg/向量检索）→ 检索 / 注入 / 状态，一个 CLI 全闭环，本地运行、零外部依赖。
+自动采集 Codex 会话 → 分层蒸馏 → 发布到 `~/llm-wiki`（Obsidian 浏览 + FTS5/rg/向量检索）→ 检索 / 注入 / 状态，一个 CLI 全闭环。本地数据默认不离开机器；只有显式使用 `--llm` 或其他可选集成时才会访问配置的服务。
 
 ```
 ~/.codex/sessions/**/*.jsonl  ──capture──▶  staging/observations-*.jsonl
@@ -61,11 +61,20 @@
 
 ## 依赖
 
-- macOS bash 3.2、`jq`、`rg`（必选）
-- `curl`（可选，`--llm` 摘要用）
-- `sqlite3`（可选，`--source claude-mem` 兼容用）
-- 本地 LLM 代理 `127.0.0.1:10100`（可选，`--llm` 默认用 sensenova/sensenova-6.8-flash-lite 免费模型（稳定），可用 `CLAUDE_MEM_MODEL` 环境变量覆盖；失败自动降级为统计描述）
-- `gbrain`（可选，`search --gbrain` 混合检索用）
+核心命令需要以下本地工具：Bash、`jq`、`rg`、`curl`、Python 3（含标准库 `sqlite3`）和 `sqlite3` CLI（带 FTS5）。项目不会自动安装它们。
+
+以下能力按需安装或配置：
+
+- MCP 服务：Python 包 `mcp`（FastMCP）；不使用 MCP 时无需安装。
+- 向量检索：Python 包 `fastembed` 和 `numpy`；不运行 `embed` 或 `search --fuse` 时无需安装。
+- LLM 摘要/问答：可访问的 OpenAI-compatible 本地或远程端点；仅 `--llm`、`ask` 与查询扩展功能需要。请求会发送到你配置的端点。
+- `gbrain`：仅 `search --gbrain` 的可选混合检索需要。
+
+## 本地草稿与 launchd 模板
+
+`~/llm-wiki/drafts/memoryhub/` 保存从本地会话生成、尚未人工公开整理的运维草稿。它不是公开内容区，`verify` 的凭据扫描会精确跳过该目录；其他 `drafts/` 子目录仍在扫描范围内。发布到公开仓库前，请单独审阅或排除该草稿目录。
+
+`deploy/com.memctl.watch.plist` 是模板，不含个人路径。复制后将 `__MEMORY_HUB_ROOT__` 替换为本机仓库绝对路径，再按自己的 launchd 流程安装；不要直接加载未替换的模板。
 
 ## 安全边界
 

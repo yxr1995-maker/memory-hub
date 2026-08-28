@@ -91,15 +91,29 @@ fi
 TMPDIR_EXCLUDED=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_SAFE" "$TMPDIR_LEAK" "$TMPDIR_EXCLUDED"' EXIT
 setup_wiki "$TMPDIR_EXCLUDED"
-mkdir -p "$TMPDIR_EXCLUDED/raw" "$TMPDIR_EXCLUDED/_archive"
+mkdir -p "$TMPDIR_EXCLUDED/raw" "$TMPDIR_EXCLUDED/_archive" "$TMPDIR_EXCLUDED/drafts/memoryhub"
 echo 'Bearer excluded-raw-value' > "$TMPDIR_EXCLUDED/raw/page.md"
 echo 'Bearer excluded-archive-value' > "$TMPDIR_EXCLUDED/_archive/page.md"
+echo 'Bearer excluded-memoryhub-draft-value' > "$TMPDIR_EXCLUDED/drafts/memoryhub/page.md"
 EXCLUDED_STATUS=$(WIKI_PATH="$TMPDIR_EXCLUDED" bash "$ROOT/scripts/status.sh" 2>&1)
 if echo "$EXCLUDED_STATUS" | grep -q 'token命中=0' \
    && WIKI_PATH="$TMPDIR_EXCLUDED" bash "$ROOT/scripts/verify.sh" >/dev/null 2>&1; then
-  pass "status and verify both ignore raw and archive"
+  pass "status and verify ignore raw, archive, and drafts/memoryhub"
 else
-  fail "status and verify disagree on raw or archive exclusions"
+  fail "status and verify disagree on exact exclusions"
+fi
+
+TMPDIR_DRAFT_LEAK=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_SAFE" "$TMPDIR_LEAK" "$TMPDIR_EXCLUDED" "$TMPDIR_DRAFT_LEAK"' EXIT
+setup_wiki "$TMPDIR_DRAFT_LEAK"
+mkdir -p "$TMPDIR_DRAFT_LEAK/drafts/review"
+echo 'Bearer public-draft-value' > "$TMPDIR_DRAFT_LEAK/drafts/review/page.md"
+DRAFT_LEAK_STATUS=$(WIKI_PATH="$TMPDIR_DRAFT_LEAK" bash "$ROOT/scripts/status.sh" 2>&1)
+if echo "$DRAFT_LEAK_STATUS" | grep -q 'token命中=1' \
+   && ! WIKI_PATH="$TMPDIR_DRAFT_LEAK" bash "$ROOT/scripts/verify.sh" >/dev/null 2>&1; then
+  pass "status and verify reject leaked credentials in other drafts"
+else
+  fail "status and verify incorrectly exclude non-memoryhub drafts"
 fi
 
 # 7. Real wiki: scanner yields 0 hits.

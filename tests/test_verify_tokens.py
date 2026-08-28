@@ -9,9 +9,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCANNER = ROOT / "scripts" / "verify_tokens.py"
 
 
-def scan(text: str) -> subprocess.CompletedProcess[str]:
+def scan(text: str, relative_path: str = "page.md") -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
-        page = pathlib.Path(tmp) / "page.md"
+        page = pathlib.Path(tmp) / relative_path
+        page.parent.mkdir(parents=True, exist_ok=True)
         page.write_text(text, encoding="utf-8")
         return subprocess.run(
             [sys.executable, str(SCANNER), tmp], text=True, capture_output=True, check=False
@@ -48,6 +49,10 @@ def main() -> None:
         assert "literal-placeholder" not in dangerous.stdout, name
     assert scan("eyJ.synthetic.payload").returncode == 1
     assert scan("sk-ant-synthetic_token_0123456789").returncode == 1
+    assert scan("Bearer draft-only-value", "drafts/memoryhub/page.md").returncode == 0
+    leaked_draft = scan("Bearer public-draft-value", "drafts/review/page.md")
+    assert leaked_draft.returncode == 1
+    assert "drafts/review/page.md" in leaked_draft.stdout
 
 
 if __name__ == "__main__":

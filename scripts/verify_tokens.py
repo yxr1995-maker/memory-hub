@@ -50,7 +50,15 @@ def has_bearer_credential(text: str) -> bool:
 
 def is_scanned(path: pathlib.Path) -> bool:
     parts = _relative_parts(path)
-    return "raw" not in parts and not any(part.startswith("_" ) for part in parts)
+    # memory-hub writes unreviewed session distillations here. They are an
+    # operational draft area, not publishable wiki content; scan every other
+    # drafts subtree so an accidental broad exclusion cannot hide a leak.
+    is_memoryhub_draft = parts[:2] == ("drafts", "memoryhub")
+    return (
+        not is_memoryhub_draft
+        and "raw" not in parts
+        and not any(part.startswith("_") for part in parts)
+    )
 
 
 def scan_text(text: str) -> bool:

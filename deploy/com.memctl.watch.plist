@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/earan/Documents/memory-hub/scripts/watch-loop.sh</string>
+    <string>__MEMORY_HUB_ROOT__/scripts/watch-loop.sh</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

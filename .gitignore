@@ -2,3 +2,17 @@ staging/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local research, reports, and agent-run artifacts. These may contain private
+# session material and are deliberately not part of the distributable source.
+.omo/
+reports/
+aml_research/
+memos_research/
+evaluation/
+visualizations/
+competition.md
+docs.md
+evaluation.md
+mem0-report.md
+mem0-tech-notes.md

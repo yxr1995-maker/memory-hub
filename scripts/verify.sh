@@ -139,7 +139,7 @@ fi
 # 5. wiki 内容硬检查
 WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
 TOKEN_RES="$(python3 "$HUB_DIR/scripts/verify_tokens.py" "$WIKI_DIR" || true)"
-TOKEN_N="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2)"
+TOKEN_N="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d '=' -f 2)"
 if echo "$TOKEN_RES" | grep -q '^BAD'; then
   echo "$TOKEN_RES" | grep '^BAD' | sed 's/^/  /'
   fail "wiki 非归档区发现疑似 token（${TOKEN_N:-?} 页）"
