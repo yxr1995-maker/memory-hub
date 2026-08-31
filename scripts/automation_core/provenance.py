@@ -29,10 +29,18 @@ def _record(observation: Observation) -> dict[str, object]:
     return asdict(observation)
 
 
+def _controlled_project_id(value: object) -> str:
+    rendered = str(value or "").strip().replace("\\", "/").rstrip("/")
+    leaf = rendered.rsplit("/", 1)[-1]
+    return normalize_id(leaf, "default-project")
+
+
 def normalize_observation(
     raw: Mapping[str, object], source: str, session_meta: Mapping[str, object]
 ) -> Observation:
-    project_id = normalize_id(str(raw.get("project") or session_meta.get("project_id") or ""), "default-project")
+    project_id = _controlled_project_id(
+        session_meta.get("project_id") or raw.get("project")
+    )
     cwd = str(session_meta.get("cwd", ""))
     cwd_hash = hashlib.sha256(cwd.encode()).hexdigest()
     stable = json.dumps({"source": source, "source_id": str(raw["id"]),
