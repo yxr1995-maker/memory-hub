@@ -1,0 +1,12 @@
+== memory-hub status (2026-08-31 21:22:21) ==
+Codex会话(近3天): 180 个文件
+  最新会话: 2026/08/31/rollout-2026-08-31T21-12-03-01a057f2-c614-7881-a215-264fa3fded1c.jsonl (08-31 21:22)
+staging观察文件: 0
+llm-wiki页面: 12961
+  健康: token命中=0 死链=0(raw=0) concepts/queries-memoryhub=0
+  最近更新:
+    - failures/vision-sidecar-failure-not-overall-vision-failure.md
+    - failures/2026-08-12-memoryhub-gbrain-100034.md
+    - failures/opencodex-sensenova-code-mode-exec-alias-499.md
+claude-mem: DB存在, 13793 条观察
+LLM代理(127.0.0.1:10100): 可用
