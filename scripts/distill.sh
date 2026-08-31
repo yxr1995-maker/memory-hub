@@ -68,7 +68,7 @@ llm_summary() {
 }
 
 PAGES=0
-for p in $(jq -r '.project_id // .project' "$IN" | sort -u); do
+while IFS= read -r p || [[ -n "$p" ]]; do
   [[ -n "$p" ]] || continue
 safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
 [[ -n "$safe_p" ]] || safe_p="misc"
@@ -197,6 +197,37 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       [[ -f "$HOME/llm-wiki/moc/LLM-Wiki 地图.md" ]] && LINKS="$LINKS · [[moc/LLM-Wiki 地图]]"
       echo "关联: $LINKS"
     } > "$FILE"
+    MEMORY_HUB_DISTILL_PAGE="$FILE" \
+    MEMORY_HUB_DISTILL_PROJECT="$p" \
+    MEMORY_HUB_USER_SCOPE_ID="${MEMORY_HUB_USER_SCOPE_ID:-default-user}" \
+    PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 - <<'PY'
+import os
+from pathlib import Path
+
+from scripts.automation_core.frontmatter import parse_page, patch_frontmatter
+from scripts.automation_core.scope import infer_scope
+
+path = Path(os.environ["MEMORY_HUB_DISTILL_PAGE"])
+document = parse_page(path)
+assignment = infer_scope(
+    document,
+    {"project_id": os.environ["MEMORY_HUB_DISTILL_PROJECT"]},
+    os.environ["MEMORY_HUB_USER_SCOPE_ID"],
+)
+path.write_bytes(
+    patch_frontmatter(
+        document,
+        {
+            "scope": assignment.scope,
+            "scope_id": assignment.scope_id,
+            "scope_confidence": assignment.confidence,
+            "scope_source": assignment.source,
+            "scope_conflict": assignment.conflict,
+        },
+    )
+)
+PY
     PAGES=$((PAGES + 1))
     echo "distill: $FILE (第 $START-$END 条 / 共 $TOTAL_N)"
     if [[ -n "$CONFLICT" ]]; then
@@ -220,6 +251,6 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       echo "distill: [conflict] $SLUG -> $CF"
     fi
   done
-done
+done < <(jq -r '.project_id // .project // empty' "$IN" | sort -u)
 
 echo "distill: 完成，共 $PAGES 页"
