@@ -22,23 +22,35 @@ count() {
   echo "memory_hub_${name} $val"
 }
 
-SESSIONS_DIR="${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions}"
-N_SESSIONS="$(find "$SESSIONS_DIR" -type f -name '*.jsonl' -mtime -3 2>/dev/null | wc -l | tr -d ' ')"
-N_OBS_FILES="$(ls "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ')"
-N_OBS_LINES="$(cat "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ')"
+SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${HOME:-}/.codex/sessions}"
+N_SESSIONS=0
+if [[ -d "$SESSIONS_DIR" ]]; then
+  N_SESSIONS="$(find "$SESSIONS_DIR" -type f -name '*.jsonl' -mtime -3 2>/dev/null | wc -l | tr -d ' ')"
+fi
+N_OBS_FILES=0
+if [[ -d "$STAGING" ]]; then
+  N_OBS_FILES="$(ls "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ' || true)"
+fi
+N_OBS_LINES=0
+if [[ -d "$STAGING" ]]; then
+  N_OBS_LINES="$(cat "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ' || true)"
+fi
 RT_FILE="$STAGING/observations-realtime.jsonl"
 N_RT_LINES=0
 if [[ -f "$RT_FILE" ]]; then
   N_RT_LINES="$(wc -l < "$RT_FILE" | tr -d ' ')"
 fi
-N_PAGES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
+N_PAGES=0
+if [[ -d "$WIKI" ]]; then
+  N_PAGES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
+fi
 DB_BYTES=0
 if [[ -f "$DB" ]]; then
-  DB_BYTES="$(stat -f '%z' "$DB")"
+  DB_BYTES="$(stat -f '%z' "$DB" 2>/dev/null || echo 0)"
 fi
-CM_DB="${CLAUDE_MEM_DB:-$HOME/.claude-mem/data/claude-mem.db}"
+CM_DB="${CLAUDE_MEM_DB:-${HOME:-}/.claude-mem/data/claude-mem.db}"
 CM_ROWS=0
-if [[ -f "$CM_DB" ]]; then
+if [[ -n "${HOME:-}" && -f "$CM_DB" ]]; then
   CM_ROWS="$(sqlite3 "$CM_DB" 'SELECT count(*) FROM observations;' 2>/dev/null || echo 0)"
 fi
 
@@ -46,53 +58,17 @@ gauge sessions_recent "$N_SESSIONS"
 gauge observations_files "$N_OBS_FILES"
 count observations_lines "$N_OBS_LINES"
 count realtime_observations_lines "$N_RT_LINES"
-# 最近一次采集落盘距今（秒），衡量实时采集是否停滞
-LATEST_OBS="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || true)"
-if [[ -n "${LATEST_OBS:-}" ]]; then
-  MTIME="$(stat -f '%m' "$LATEST_OBS")"
-  gauge last_capture_age_seconds "$(( $(date '+%s') - MTIME ))"
+
+if [[ -d "$STAGING" ]]; then
+  LATEST_OBS="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || true)"
+  if [[ -n "${LATEST_OBS:-}" ]]; then
+    MTIME="$(stat -f '%m' "$LATEST_OBS" 2>/dev/null || echo 0)"
+    gauge last_capture_age_seconds "$(( $(date '+%s') - MTIME ))"
+  fi
 fi
 gauge wiki_pages "$N_PAGES"
 gauge index_db_bytes "$DB_BYTES"
 gauge claude_mem_rows "$CM_ROWS"
-
-# wiki 内容健康（来自 verify.sh 的扫描结果）
-WIKI_DIR="${WIKI_PATH:-$HOME/llm-wiki}"
-TOKEN_HITS="$(python3 - "$WIKI_DIR" <<'PY'
-import pathlib, re, sys
-wiki = pathlib.Path(sys.argv[1])
-patterns = [
-    re.compile(r'Bearer\s+\S+'),
-    re.compile(r'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'),
-    re.compile(r'sk-(?:ant-)?[A-Za-z0-9_\-]{16,}'),
-]
-doc_markers = [
-    re.compile(r'--bearer-token-env-var'),
-    re.compile(r'Bearer token', re.I),
-]
-hits = 0
-for p in wiki.rglob('*.md'):
-    if 'raw/' in p.as_posix() or '/_' in p.as_posix():
-        continue
-    for line in p.read_text(encoding='utf-8', errors='replace').splitlines():
-        if any(m.search(line) for m in doc_markers):
-            continue
-        if any(pat.search(line) for pat in patterns):
-            hits += 1
-            break
-print(hits)
-PY
-)"
-gauge wiki_token_hits "${TOKEN_HITS:-0}"
-
-DEAD_RES="$(cd "$WIKI_DIR" && python3 .scripts/fix_deadlinks.py 2>&1)"
-DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^未解\/多候选:/ {print $2}')"
-RAW_DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^raw 区死链:/ {print $2}')"
-gauge wiki_dead_links "${DEAD_N:-0}"
-gauge wiki_raw_dead_links "${RAW_DEAD_N:-0}"
-
-MH_N="$(find "$WIKI_DIR/concepts" "$WIKI_DIR/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
-gauge wiki_memoryhub_stray_pages "${MH_N:-0}"
 
 if [[ -f "$TIMINGS" ]]; then
   echo "# TYPE memory_hub_duration_seconds_total counter"
@@ -107,4 +83,65 @@ if [[ -f "$TIMINGS" ]]; then
         printf "memory_hub_duration_seconds_last{stage=\"%s\"} %.3f\n", k, l[k]/1000
       }
     }' "$TIMINGS" | sort
+fi
+
+# 自动化操作 Prometheus 指标
+REPORTS_DIR="$DATA_DIR/reports"
+if [[ -d "$REPORTS_DIR" ]]; then
+  python3 - "$REPORTS_DIR" <<'PY'
+import glob, json, os, sys
+reports_dir = sys.argv[1]
+
+for f in glob.glob(os.path.join(reports_dir, "scope-*.jsonl")):
+    try:
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip(): continue
+                d = json.loads(line)
+                scope = d.get("scope", "unknown")
+                conf = d.get("confidence", "unknown")
+                res = d.get("result", "unknown")
+                print(f'memory_hub_scope_backfill_total{{scope="{scope}",confidence="{conf}",result="{res}"}} 1')
+                if d.get("conflict"):
+                    print('memory_hub_scope_conflict_total 1')
+    except Exception:
+        pass
+
+for f in glob.glob(os.path.join(reports_dir, "query-plan-*.jsonl")):
+    try:
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip(): continue
+                d = json.loads(line)
+                planner = d.get("planner", "unknown")
+                fb = d.get("fallback_reason") or "none"
+                print(f'memory_hub_query_plan_total{{planner="{planner}",fallback_reason="{fb}"}} 1')
+                n_exp = len(d.get("expansions", []))
+                print(f'memory_hub_query_expand_terms {n_exp}')
+    except Exception:
+        pass
+
+for f in glob.glob(os.path.join(reports_dir, "lifecycle-*.jsonl")):
+    try:
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip(): continue
+                d = json.loads(line)
+                dec = d.get("decision", "unknown")
+                res = d.get("result", "unknown")
+                print(f'memory_hub_successor_total{{decision="{dec}",result="{res}"}} 1')
+    except Exception:
+        pass
+
+for f in glob.glob(os.path.join(reports_dir, "operation-*.json")):
+    try:
+        with open(f, encoding="utf-8") as fh:
+            d = json.loads(fh.read())
+            cmd = d.get("command", "unknown")
+            mode = d.get("mode", "unknown")
+            res = d.get("result", "unknown")
+            print(f'memory_hub_auto_operation_total{{command="{cmd}",mode="{mode}",result="{res}"}} 1')
+    except Exception:
+        pass
+PY
 fi

@@ -1,0 +1,3 @@
+{"q": "active concept documentation", "expected": "active.md", "type": "A"}
+{"q": "successor supersedes old knowledge", "expected": "successor.md", "type": "A"}
+{"q": "user preference configuration", "expected": "scoped.md", "type": "A"}

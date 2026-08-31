@@ -74,11 +74,22 @@ def extract_tiered_content(frontmatter: Dict[str, Any], body: str, tier: str = "
     return body
 
 
+LIFECYCLE_EXPORT_DEFAULTS = {
+    "scope": "project",
+    "scope_id": "default-project",
+    "scope_confidence": "low",
+    "status": "active",
+    "valid_at": "",
+    "invalid_at": "",
+}
+
 def collect_pages(
     wiki_dir: pathlib.Path,
     project_filter: Optional[str] = None,
     type_filter: Optional[str] = None,
     tier: str = "full",
+    scope_filter: Optional[str] = None,
+    scope_id_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """遍历知识库并提取符合过滤条件的页面列表。"""
     pages: List[Dict[str, Any]] = []
@@ -117,10 +128,17 @@ def collect_pages(
                 if not matches_project:
                     continue
 
+            page_scope = str(frontmatter.get("scope") or "project")
+            page_scope_id = str(frontmatter.get("scope_id") or "default-project")
+            if scope_filter and page_scope.lower() != scope_filter.lower():
+                continue
+            if scope_id_filter and page_scope_id != scope_id_filter:
+                continue
+
             slug = file_path.stem
             title = frontmatter.get("title", slug)
             extracted_body = extract_tiered_content(frontmatter, body, tier=tier)
-            pages.append({
+            record = {
                 "slug": slug,
                 "title": title,
                 "type": page_type,
@@ -133,7 +151,14 @@ def collect_pages(
                 "body": body,
                 "updated": frontmatter.get("updated", ""),
                 "created": frontmatter.get("created", ""),
-            })
+                "scope": page_scope,
+                "scope_id": page_scope_id,
+                "scope_confidence": str(frontmatter.get("scope_confidence") or "low"),
+                "status": str(frontmatter.get("status") or "active"),
+                "valid_at": str(frontmatter.get("valid_at") or ""),
+                "invalid_at": str(frontmatter.get("invalid_at") or ""),
+            }
+            pages.append(record)
 
     pages.sort(key=lambda p: (p["updated"] or p["created"] or "", p["path"]), reverse=True)
     return pages
@@ -178,6 +203,8 @@ def main() -> int:
     parser.add_argument("--wiki-dir", default=default_wiki, help=f"知识库根目录 (默认: {default_wiki})")
     parser.add_argument("--project", default=None, help="按项目名称过滤")
     parser.add_argument("--type", default=None, help="按页面类型过滤 (如 concept, decision, failure 等)")
+    parser.add_argument("--scope", default=None, choices=["user", "project", "agent"], help="按作用域过滤")
+    parser.add_argument("--scope-id", default=None, help="按作用域ID过滤")
     parser.add_argument("--tier", choices=["l0", "l1", "l2", "full"], default="full", help="分级上下文抽取深度 (L0摘要 / L1概述 / L2明细 / full全文)")
     parser.add_argument("--format", choices=["jsonl", "json", "markdown"], default="jsonl", help="导出格式 (默认: jsonl)")
     parser.add_argument("--output", "-o", default=None, help="输出文件路径 (缺省打印至 stdout)")
@@ -186,7 +213,7 @@ def main() -> int:
     args = parser.parse_args()
     wiki_path = pathlib.Path(args.wiki_dir).expanduser().resolve()
 
-    pages = collect_pages(wiki_path, project_filter=args.project, type_filter=args.type, tier=args.tier)
+    pages = collect_pages(wiki_path, project_filter=args.project, type_filter=args.type, tier=args.tier, scope_filter=args.scope, scope_id_filter=args.scope_id)
     if args.limit and args.limit > 0:
         pages = pages[:args.limit]
 

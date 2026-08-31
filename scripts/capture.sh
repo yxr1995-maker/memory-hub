@@ -3,7 +3,7 @@
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$HUB_DIR/staging"
+STAGING="${MEMORY_HUB_STAGING:-$HUB_DIR/staging}"
 source "$HUB_DIR/scripts/lib.sh"
 timing_begin
 trap 'timing_end capture "$?"' EXIT
@@ -55,6 +55,20 @@ resolve_since() {
   fi
 }
 
+normalize_capture_output() {
+  local source_name="$1" input_file="$2" final_file="$3" normalized_file normalizer_module
+  normalized_file="$(mktemp "$STAGING/.normalized.XXXXXX")"
+  normalizer_module="${MEMORY_HUB_NORMALIZER_MODULE:-scripts.automation_core.provenance}"
+  if ! PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m "$normalizer_module" normalize-jsonl \
+      --source "$source_name" < "$input_file" > "$normalized_file"; then
+    rm -f "$normalized_file"
+    return 1
+  fi
+  mv "$normalized_file" "$final_file"
+  rm -f "$input_file"
+}
+
 CLEAN_JQ='gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[^>]*>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "")'
 
 # ============ workbuddy (~/.workbuddy/projects) ============
@@ -94,7 +108,8 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
   run_capture_wb() {
     resolve_since "$STAGING/.since.workbuddy" "$STAGING/.seen.workbuddy"
     TS="$(date +%Y%m%d-%H%M%S)"
-    OUT="$STAGING/observations-$TS.jsonl"
+    FINAL_OUT="$STAGING/observations-$TS.jsonl"
+    OUT="$(mktemp "$STAGING/.observations-$TS.XXXXXX")"
     RAW="$(mktemp)"
     WB_JQ_FILTER="$(mktemp)"
     _jq_template="$WB_EXTRACT_JQ"
@@ -107,7 +122,12 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       proj="$(basename "$(dirname "$f")")"
       proj="$(printf '%s' "$proj" | sed 's/^Users-earan-WorkBuddy-//; s/^[0-9-]*//; s/^-*//; s/-*$//')"
       [[ -n "$proj" ]] || proj="workbuddy"
-      jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$WB_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
+      session_id="$(basename "$f" .jsonl)"
+      jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null \
+        | jq -c -f "$WB_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" 2>/dev/null \
+        | jq -c --arg sid "$session_id" --arg cwd "$(dirname "$f")" --arg proj "$proj" \
+          '. + {session_meta: {session_id: $sid, cwd: $cwd, project_id: $proj}}' \
+          >> "$RAW" 2>/dev/null || true
     done < <(scan_files_wb)
 
     python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
@@ -135,13 +155,19 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       fi
     done < "$OUT"
     mv "$FILTERED" "$OUT"
-    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
     if [[ "$COUNT" -gt 0 ]]; then
-      printf '%s\n' "$(jq -r '.created_at_epoch' "$OUT" | tail -1)" > "$ACTIVE_SINCE_FILE"
+      NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
+      if ! normalize_capture_output workbuddy "$OUT" "$FINAL_OUT"; then
+        rm -f "$OUT" "$SEEN_TMP"
+        return 1
+      fi
+      OUT="$FINAL_OUT"
+      mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
+      printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
       echo "capture(workbuddy): $COUNT 条新观察 -> $OUT"
     else
-      rm -f "$OUT"
+      rm -f "$OUT" "$SEEN_TMP"
       echo "capture(workbuddy): 无新观察 (since=$SINCE_MS)"
     fi
   }
@@ -166,16 +192,20 @@ if [[ "$SOURCE" == "claude-mem" ]]; then
   [[ -f "$DB" ]] || { echo "错误: claude-mem DB 不存在: $DB" >&2; exit 1; }
   resolve_since
   TS="$(date +%Y%m%d-%H%M%S)"
-  OUT="$STAGING/observations-$TS.jsonl"
+  FINAL_OUT="$STAGING/observations-$TS.jsonl"
+  OUT="$(mktemp "$STAGING/.observations-$TS.XXXXXX")"
   sqlite3 -json "$DB" "
   SELECT id, project, type, title, text, facts, narrative, concepts, files_read, files_modified, created_at, created_at_epoch
   FROM observations
   WHERE created_at_epoch > $SINCE_MS
   ORDER BY created_at_epoch ASC;" \
-    | jq -c '.[]' > "$OUT"
+    | jq -c '.[] | . + {session_meta: {session_id: "claude-mem", project_id: ((.project // "") | gsub("\\\\"; "/") | split("/") | map(select(length > 0)) | .[-1] // "default-project")}}' > "$OUT"
   COUNT="$(wc -l < "$OUT" | tr -d ' ')"
   if [[ "$COUNT" -gt 0 ]]; then
-    printf '%s\n' "$(jq -r '.created_at_epoch' "$OUT" | tail -1)" > "$ACTIVE_SINCE_FILE"
+    NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
+    normalize_capture_output claude-mem "$OUT" "$FINAL_OUT"
+    OUT="$FINAL_OUT"
+    printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
     echo "capture(claude-mem): $COUNT 条新观察 -> $OUT"
   else
     rm -f "$OUT"
@@ -244,7 +274,8 @@ if [[ "$SOURCE" == "claude-code" ]]; then
   run_capture_claude() {
     resolve_since "$STAGING/.since.claude-code" "$STAGING/.seen.claude-code"
     TS="$(date +%Y%m%d-%H%M%S)"
-    OUT="$STAGING/observations-$TS.jsonl"
+    FINAL_OUT="$STAGING/observations-$TS.jsonl"
+    OUT="$(mktemp "$STAGING/.observations-$TS.XXXXXX")"
     RAW="$(mktemp)"
     CLAUDE_JQ_FILTER="$(mktemp)"
     _jq_template="$CLAUDE_EXTRACT_JQ"
@@ -260,7 +291,12 @@ if [[ "$SOURCE" == "claude-code" ]]; then
         proj="$(basename "$(dirname "$f")")"
       fi
       [[ -n "$proj" ]] || proj="unknown"
-      jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$CLAUDE_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
+      session_id="$(basename "$f" .jsonl)"
+      jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null \
+        | jq -c -f "$CLAUDE_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" 2>/dev/null \
+        | jq -c --arg sid "$session_id" --arg cwd "$(printf '%s' "$meta" | jq -r '.cwd // ""')" --arg proj "$proj" \
+          '. + {session_meta: {session_id: $sid, cwd: $cwd, project_id: $proj}}' \
+          >> "$RAW" 2>/dev/null || true
     done < <(scan_files_claude)
 
     python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
@@ -288,13 +324,19 @@ if [[ "$SOURCE" == "claude-code" ]]; then
       fi
     done < "$OUT"
     mv "$FILTERED" "$OUT"
-    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
     if [[ "$COUNT" -gt 0 ]]; then
-      printf '%s\n' "$(jq -r '.created_at_epoch' "$OUT" | tail -1)" > "$ACTIVE_SINCE_FILE"
+      NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
+      if ! normalize_capture_output claude-code "$OUT" "$FINAL_OUT"; then
+        rm -f "$OUT" "$SEEN_TMP"
+        return 1
+      fi
+      OUT="$FINAL_OUT"
+      mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
+      printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
       echo "capture(claude-code): $COUNT 条新观察 -> $OUT"
     else
-      rm -f "$OUT"
+      rm -f "$OUT" "$SEEN_TMP"
       echo "capture(claude-code): 无新观察 (since=$SINCE_MS)"
     fi
   }
@@ -350,7 +392,8 @@ scan_files() {
 run_capture() {
   resolve_since
   TS="$(date +%Y%m%d-%H%M%S)"
-  OUT="$STAGING/observations-$TS.jsonl"
+  FINAL_OUT="$STAGING/observations-$TS.jsonl"
+  OUT="$(mktemp "$STAGING/.observations-$TS.XXXXXX")"
   RAW="$(mktemp)"
   CODEX_JQ_FILTER="$(mktemp)"
   _jq_template="$EXTRACT_JQ"
@@ -360,10 +403,15 @@ run_capture() {
 
   while IFS= read -r -d '' f; do
     [[ -f "$f" ]] || continue
-    meta="$(jq -c 'select(.type=="session_meta") | {cwd:.payload.cwd}' "$f" 2>/dev/null | head -1 || true)"
+    meta="$(jq -c 'select(.type=="session_meta") | {cwd:(.payload.cwd // ""), session_id:(.payload.id // "")}' "$f" 2>/dev/null | head -1 || true)"
+    [[ -n "$meta" ]] || meta='{}'
     proj="$(printf '%s' "$meta" | jq -r '.cwd // ""' 2>/dev/null | sed 's#/$##' | sed 's#.*/##' || true)"
     [[ -n "${proj:-}" ]] || proj="unknown"
-    jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null | jq -c -f "$CODEX_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" >> "$RAW" 2>/dev/null || true
+    jq -R -c 'fromjson? // empty | select(.)' "$f" 2>/dev/null \
+      | jq -c -f "$CODEX_JQ_FILTER" --arg proj "$proj" --argjson since "$SINCE_MS" 2>/dev/null \
+      | jq -c --argjson meta "$meta" --arg proj "$proj" \
+        '. + {session_meta: ($meta + {project_id: $proj})}' \
+        >> "$RAW" 2>/dev/null || true
   done < <(scan_files)
 
   python3 "$HUB_DIR/scripts/sanitize_jsonl.py" < "$RAW" > "$RAW.san" && mv "$RAW.san" "$RAW"
@@ -391,13 +439,19 @@ run_capture() {
     fi
   done < "$OUT"
   mv "$FILTERED" "$OUT"
-  mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
   if [[ "$COUNT" -gt 0 ]]; then
-    printf '%s\n' "$(jq -r '.created_at_epoch' "$OUT" | tail -1)" > "$ACTIVE_SINCE_FILE"
+    NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
+    if ! normalize_capture_output codex "$OUT" "$FINAL_OUT"; then
+      rm -f "$OUT" "$SEEN_TMP"
+      return 1
+    fi
+    OUT="$FINAL_OUT"
+    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
+    printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
     echo "capture(codex): $COUNT 条新观察 -> $OUT"
   else
-    rm -f "$OUT"
+    rm -f "$OUT" "$SEEN_TMP"
     echo "capture(codex): 无新观察 (since=$SINCE_MS)"
   fi
 }
