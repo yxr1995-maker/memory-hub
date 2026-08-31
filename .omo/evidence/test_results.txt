@@ -9,6 +9,3 @@ PASS  --format json produces valid JSON
 PASS  --json alias produces valid JSON
 PASS  credential value not in stdout
 PASS  verify.sh exits 0 on real wiki
-PASS  status.sh exits 0 on real wiki
-== 全部通过 ==
-EXIT:0
