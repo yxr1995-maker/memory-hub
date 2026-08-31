@@ -25,8 +25,8 @@ usage() {
   echo "  metrics             输出 Prometheus 文本指标"
   echo "  serve [--port N]    启动 REST 查询服务（/search /ask /status /metrics）"
   echo "  watch               定时采集循环（每 60 秒）"
-  echo "  maintain [--safe|--no-auto] [--apply] 跨日聚类与知识库维护"
-  echo "  run [--safe|--no-auto] [--apply] 全链路自动化闭环"
+  echo "  maintain [--safe|--no-auto] [--apply] 跨日聚类与知识库维护 (default: auto=on, apply=on, commit=on)"
+  echo "  run [--safe|--no-auto] [--apply] 全链路自动化闭环 (default: auto=on, apply=on, commit=on)"
 }
 
 CMD="${1:-}"
