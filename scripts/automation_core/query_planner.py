@@ -51,15 +51,15 @@ class QueryPlan:
     l0_snippets: tuple[L0Snippet, ...]
     latency_ms: float
 
-    def public_explain(self) -> dict[str, object]:
+    def public_explain(self, request: SearchRequest | None = None) -> dict[str, object]:
         return {
             "query": self.query,
             "query_hash": self.query_hash,
             "planner": self.planner,
             "fallback_reason": self.fallback_reason,
             "expansions": [{"term": t.text, "confidence": t.confidence} for t in self.expansions],
-            "expand": bool(self.expansions),
-            "fuse": True,
+            "expand": request.expand if request else bool(self.expansions),
+            "fuse": request.fuse if request else True,
         }
 
 
@@ -216,8 +216,8 @@ class OpenAICompatiblePlanner:
         query: str,
         query_hash: str,
         snippets: Sequence[L0Snippet],
-        connect_timeout: float = 2.0,
-        read_timeout: float = 6.0,
+        connect_timeout: float = 0.5,
+        read_timeout: float = 1.0,
     ) -> tuple[tuple[ExpansionTerm, ...], str | None]:
         if not snippets:
             return (), "empty_l0"
