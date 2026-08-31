@@ -1,0 +1,13 @@
+diff --git a/scripts/status.sh b/scripts/status.sh
+index 530e44b..619ba39 100755
+--- a/scripts/status.sh
++++ b/scripts/status.sh
+@@ -22,7 +22,7 @@ else
+   echo "Codex会话: 未找到 $SESSIONS_DIR"
+ fi
+ # 2. staging 观察
+-N_OBS="$(ls "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ')"
++N_OBS="$(ls "$STAGING"/observations-*.jsonl 2>/dev/null | wc -l | tr -d ' ' || true)"
+ echo "staging观察文件: ${N_OBS}"
+ if [[ -f "$STAGING/.since" ]]; then
+   SINCE_RAW="$(cat "$STAGING/.since")"

@@ -1,0 +1,59 @@
+{
+  "scenario": "final_stop_hook_machine_readable_direct_verification",
+  "assigned_documents": [
+    "docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md",
+    "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md",
+        "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"
+      ],
+      "exit_code": 0,
+      "stdout": ""
+    },
+    {
+      "argv": [
+        "rg",
+        "-n",
+        "ctx\\.journal|fail_after|LifecycleJournal\\(|OperationJournal\\(",
+        "docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md",
+        "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"
+      ],
+      "exit_code": 1,
+      "stdout": ""
+    },
+    {
+      "argv": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "exit_code": 0,
+      "stdout": " M docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md\n?? docs/superpowers/plans/\n"
+    }
+  ],
+  "criteria": {
+    "no_forbidden_residuals": true,
+    "one_failure_hook_declaration": true,
+    "one_root_journal_factory": true,
+    "task_8_10_11_explicit_tx": true,
+    "named_hook_failure_matrix": true,
+    "single_inverse_rollback_contract": true,
+    "placeholder_free": true,
+    "fourteen_tasks": true,
+    "git_diff_check": true,
+    "forbidden_rg_zero_matches": true
+  },
+  "root_factory_matches": 1,
+  "document_sha256": {
+    "docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md": "ba057a092a3282e77596d41555d816eeb6706165deed2fbe192bf3ac111fe5c4",
+    "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md": "2d213fbbf2ad630266ec0f16a235703300f1c16aa3a446c684c60693acc2a5d5"
+  },
+  "result": "PASS"
+}

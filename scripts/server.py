@@ -1,3 +1,5 @@
+from scripts.automation_core.query_planner import SearchRequest
+from scripts.automation_core.service import MemoryService
 #!/usr/bin/env python3
 """memory-hub REST server (stdlib only): 供外部 agent 查询记忆向量/知识库。
 
@@ -761,23 +763,70 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/status":
             return self._text(*run_script("status.sh", timeout=20))
         if u.path == "/search":
-            args = [first("q")[:500], "--top", first("top", "10")]
-            if first("expand", "0") in ("1", "true", "yes"):
-                args.append("--expand")
-            if first("fuse", "1") in ("1", "true", "yes"):
-                args.append("--fuse")
-            body, code = run_script("search.sh", *args, timeout=40)
-            self._mh_refs = extract_md_refs(body)
-            return self._text(body, code)
+            q_text = first("q") or first("query")
+            if not q_text:
+                return self._json({"error": "missing query parameter"}, 400)
+            if len(q_text) > 500:
+                return self._json({"error": "query exceeds 500 characters"}, 400)
+            scope = first("scope") or None
+            if scope and scope not in ("user", "project", "agent"):
+                return self._json({"error": "invalid scope"}, 400)
+            scope_id = first("scope_id") or None
+            try:
+                top_val = int(first("top", "10"))
+                top_val = max(1, min(top_val, 50))
+            except ValueError:
+                return self._json({"error": "invalid top parameter"}, 400)
+            expand = first("expand", "1").lower() in ("1", "true", "yes")
+            fuse = first("fuse", "1").lower() in ("1", "true", "yes")
+            explain = first("explain", "0").lower() in ("1", "true", "yes")
+
+            service = MemoryService(pathlib.Path(WIKI), pathlib.Path(DATA_DIR), pathlib.Path(HUB))
+            request = SearchRequest(
+                query=q_text,
+                top=top_val,
+                fuse=fuse,
+                expand=expand,
+                scope=scope,
+                scope_id=scope_id,
+                explain=explain,
+            )
+            resp = service.search(request)
+            self._mh_refs = [r.path for r in resp.results]
+            return self._json(resp.to_dict(), 200)
+
         if u.path == "/ask":
-            args = [first("q")[:500], "--top", first("top", "5")]
-            if first("expand", "0") in ("1", "true", "yes"):
-                args.append("--expand")
-            if first("fuse", "1") in ("1", "true", "yes"):
-                args.append("--fuse")
-            body, code = run_script("ask.sh", *args, timeout=90)
-            self._mh_refs = extract_md_refs(body)
-            return self._text(body, code)
+            q_text = first("q") or first("question")
+            if not q_text:
+                return self._json({"error": "missing question parameter"}, 400)
+            if len(q_text) > 500:
+                return self._json({"error": "question exceeds 500 characters"}, 400)
+            scope = first("scope") or None
+            if scope and scope not in ("user", "project", "agent"):
+                return self._json({"error": "invalid scope"}, 400)
+            scope_id = first("scope_id") or None
+            try:
+                top_val = int(first("top", "5"))
+                top_val = max(1, min(top_val, 50))
+            except ValueError:
+                return self._json({"error": "invalid top parameter"}, 400)
+            expand = first("expand", "1").lower() in ("1", "true", "yes")
+            fuse = first("fuse", "1").lower() in ("1", "true", "yes")
+            explain = first("explain", "0").lower() in ("1", "true", "yes")
+
+            service = MemoryService(pathlib.Path(WIKI), pathlib.Path(DATA_DIR), pathlib.Path(HUB))
+            request = SearchRequest(
+                query=q_text,
+                top=top_val,
+                fuse=fuse,
+                expand=expand,
+                scope=scope,
+                scope_id=scope_id,
+                explain=explain,
+            )
+            ctx = service.ask_context(request)
+            self._mh_refs = [r.path for r in ctx.results]
+            return self._json(ctx.to_dict(), 200)
         if u.path == "/metrics":
             return self._text(*run_script("metrics.sh", timeout=20))
         # ----- 管理 API（JSON）-----

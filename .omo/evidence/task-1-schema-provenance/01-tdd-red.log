@@ -1,0 +1,2 @@
+/bin/bash: line 2: pytest: command not found
+exit_code=127

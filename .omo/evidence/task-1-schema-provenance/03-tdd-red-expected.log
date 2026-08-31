@@ -1,0 +1,17 @@
+
+==================================== ERRORS ====================================
+______________ ERROR collecting tests/test_capture_provenance.py _______________
+ImportError while importing test module '/Users/earan/Documents/memory-hub/.worktrees/roadmap-full-auto/tests/test_capture_provenance.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_capture_provenance.py:13: in <module>
+    from scripts.automation_core.frontmatter import parse_page, patch_frontmatter
+E   ModuleNotFoundError: No module named 'scripts.automation_core'
+=========================== short test summary info ============================
+ERROR tests/test_capture_provenance.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.07s
+exit_code=2

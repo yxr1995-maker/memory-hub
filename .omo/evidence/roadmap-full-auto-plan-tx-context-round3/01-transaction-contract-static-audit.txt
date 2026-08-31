@@ -1,0 +1,11 @@
+scenario=transaction_contract_static_audit
+invocation=rg signature/forbidden scans over the two assigned documents
+816:def prepare_successor_pages(plan, tx):
+829:def finalize_successor_after_index(prepared, tx):
+837:def publish_successor_once(plan, tx, rebuild_index):
+914:def begin_transaction(operation, baseline, failure_hook=None):
+915:    journal = OperationJournal.prepare(operation, baseline)  # the only root allocation
+1032:def commit_manifest(path, update, tx):
+1472:- Type/interface consistency check: inline Python compared the declared and implementation signatures for `infer_scope`, `rank_results`, `MemoryService.search`, `MemoryService.ask_context`, `begin_transaction`, `prepare_successor_pages`, `finalize_successor_after_index`, `commit_manifest`, `run_pipeline`, and `maintain_pipeline`; required one `FailureHook = Callable[[str], None]`, one `TransactionContext`, one `OperationJournal.prepare()` root allocation, explicit `tx` signatures in Tasks 8/10/11, and no `fail_after`, `ctx.journal`, `LifecycleJournal(`, or direct `OperationJournal(`; exit 0, `interface_consistency=PASS`.
+docs/superpowers/plans/2026-08-31-roadmap-full-auto.md:1472:- Type/interface consistency check: inline Python compared the declared and implementation signatures for `infer_scope`, `rank_results`, `MemoryService.search`, `MemoryService.ask_context`, `begin_transaction`, `prepare_successor_pages`, `finalize_successor_after_index`, `commit_manifest`, `run_pipeline`, and `maintain_pipeline`; required one `FailureHook = Callable[[str], None]`, one `TransactionContext`, one `OperationJournal.prepare()` root allocation, explicit `tx` signatures in Tasks 8/10/11, and no `fail_after`, `ctx.journal`, `LifecycleJournal(`, or direct `OperationJournal(`; exit 0, `interface_consistency=PASS`.
+forbidden_residual=FAIL

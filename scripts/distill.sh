@@ -4,7 +4,7 @@
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$HUB_DIR/staging"
+STAGING="${MEMORY_HUB_STAGING:-$HUB_DIR/staging}"
 PAGES_DIR="$STAGING/pages"
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 CONFLICTS_DIR="$HUB_DIR/reports/conflicts"
@@ -55,7 +55,7 @@ fi
 llm_summary() {
   local project="$1"
   local content
-  content="$(jq -r --arg p "$project" 'select(.project==$p) | "- [\(.type)] \(.title // .text // "")"' "$IN" | head -40)"
+  content="$(jq -r --arg p "$project" 'select((.project_id // .project)==$p) | "- [\(.type)] \(.title // .text // "")"' "$IN" | head -40)"
   [[ -n "$content" ]] || return 0
   local payload
   payload="$(jq -n --arg model "$MODEL" \
@@ -68,17 +68,21 @@ llm_summary() {
 }
 
 PAGES=0
-for p in $(jq -r '.project' "$IN" | sort -u); do
+while IFS= read -r p || [[ -n "$p" ]]; do
   [[ -n "$p" ]] || continue
 safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
 [[ -n "$safe_p" ]] || safe_p="misc"
 
   # memoryhub 蒸馏产物统一为 note，confidence low，由 wiki-distill 二次提炼后再分类
   PAGE_TYPE="note"
-  TOTAL_N="$(jq -c --arg p "$p" 'select(.project==$p)' "$IN" 2>/dev/null | wc -l | tr -d ' ')"
+  TOTAL_N="$(jq -c --arg p "$p" 'select((.project_id // .project)==$p)' "$IN" 2>/dev/null | wc -l | tr -d ' ')"
   [[ "$TOTAL_N" =~ ^[0-9]+$ ]] || TOTAL_N=0
-  TYPES="$(jq -r --arg p "$p" 'select(.project==$p) | .type' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
-  ROLE_N="$(jq -r --arg p "$p" 'select(.project==$p) | .role' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
+  TYPES="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .type' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
+  ROLE_N="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .role' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
+  PROVENANCE_IDS="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .provenance_id // empty' "$IN" | sort -u)"
+  SOURCE_URIS="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .source_uri // empty' "$IN" | sort -u)"
+  CWD_HASHES="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .cwd_hash // empty' "$IN" | sort -u)"
+  AGENT_IDS="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .agent_id // empty' "$IN" | sort -u)"
   CHUNK_SIZE="${DETAIL_CAP:-60}"
   NCHUNKS=$(( (TOTAL_N + CHUNK_SIZE - 1) / CHUNK_SIZE ))
   # 互链 slug 列表：只保留同批 staging 页（drafts/memoryhub 内部互链）
@@ -108,7 +112,7 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
     if [[ "$LLM" == 1 ]]; then
       ABSTRACT="$(llm_summary "$p" | sed '/^[[:space:]]*$/d' | head -1 | cut -c1-160)" || ABSTRACT=""
     fi
-    [[ -n "$ABSTRACT" ]] || ABSTRACT="$(jq -sr --arg p "$p" 'first(.[] | select(.project==$p)) | .text | .[0:100]' "$IN")"
+    [[ -n "$ABSTRACT" ]] || ABSTRACT="$(jq -sr --arg p "$p" 'first(.[] | select((.project_id // .project)==$p)) | .text | .[0:100]' "$IN")"
     ABSTRACT="$(printf '%s' "$ABSTRACT" | sanitize_text)"
 
     {
@@ -118,6 +122,23 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       echo "created: '$NOW_ISO'"
       echo "updated: '$NOW_ISO'"
       echo "abstract: '$(yaml_sq "$ABSTRACT")'"
+      echo "project_id: '$(yaml_sq "$p")'"
+      if [[ -n "$PROVENANCE_IDS" ]]; then
+        echo "provenance_ids:"
+        while IFS= read -r value; do echo "  - '$(yaml_sq "$value")'"; done <<< "$PROVENANCE_IDS"
+      fi
+      if [[ -n "$SOURCE_URIS" ]]; then
+        echo "source_uris:"
+        while IFS= read -r value; do echo "  - '$(yaml_sq "$value")'"; done <<< "$SOURCE_URIS"
+      fi
+      if [[ -n "$CWD_HASHES" ]]; then
+        echo "cwd_hashes:"
+        while IFS= read -r value; do echo "  - '$(yaml_sq "$value")'"; done <<< "$CWD_HASHES"
+      fi
+      if [[ -n "$AGENT_IDS" ]]; then
+        echo "agent_ids:"
+        while IFS= read -r value; do echo "  - '$(yaml_sq "$value")'"; done <<< "$AGENT_IDS"
+      fi
       echo "tags:"
       echo "  - memoryhub"
       echo "  - $p"
@@ -157,7 +178,7 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       echo "## 观察明细 (L2)"
       echo ""
       jq -r --arg p "$p" '
-        select(.project==$p)
+        select((.project_id // .project)==$p)
         | (if .role=="user" then "用户：" elif .role=="tool" then "工具调用：" elif .role=="assistant" then "助手：" else "" end) as $prefix
         | ("- \($prefix)\(.text // "") [\(.type) \(.id)]") | gsub("\n"; " ")' "$IN" \
         | sed -n "${START},${END}p" | sanitize_text
@@ -176,6 +197,37 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       [[ -f "$HOME/llm-wiki/moc/LLM-Wiki 地图.md" ]] && LINKS="$LINKS · [[moc/LLM-Wiki 地图]]"
       echo "关联: $LINKS"
     } > "$FILE"
+    MEMORY_HUB_DISTILL_PAGE="$FILE" \
+    MEMORY_HUB_DISTILL_PROJECT="$p" \
+    MEMORY_HUB_USER_SCOPE_ID="${MEMORY_HUB_USER_SCOPE_ID:-default-user}" \
+    PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 - <<'PY'
+import os
+from pathlib import Path
+
+from scripts.automation_core.frontmatter import parse_page, patch_frontmatter
+from scripts.automation_core.scope import infer_scope
+
+path = Path(os.environ["MEMORY_HUB_DISTILL_PAGE"])
+document = parse_page(path)
+assignment = infer_scope(
+    document,
+    {"project_id": os.environ["MEMORY_HUB_DISTILL_PROJECT"]},
+    os.environ["MEMORY_HUB_USER_SCOPE_ID"],
+)
+path.write_bytes(
+    patch_frontmatter(
+        document,
+        {
+            "scope": assignment.scope,
+            "scope_id": assignment.scope_id,
+            "scope_confidence": assignment.confidence,
+            "scope_source": assignment.source,
+            "scope_conflict": assignment.conflict,
+        },
+    )
+)
+PY
     PAGES=$((PAGES + 1))
     echo "distill: $FILE (第 $START-$END 条 / 共 $TOTAL_N)"
     if [[ -n "$CONFLICT" ]]; then
@@ -199,6 +251,6 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
       echo "distill: [conflict] $SLUG -> $CF"
     fi
   done
-done
+done < <(jq -r '.project_id // .project // empty' "$IN" | sort -u)
 
 echo "distill: 完成，共 $PAGES 页"
