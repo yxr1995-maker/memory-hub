@@ -56,11 +56,15 @@ resolve_since() {
 }
 
 normalize_capture_output() {
-  local source_name="$1" input_file="$2" final_file="$3" normalized_file
+  local source_name="$1" input_file="$2" final_file="$3" normalized_file normalizer_module
   normalized_file="$(mktemp "$STAGING/.normalized.XXXXXX")"
-  PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}" \
-    python3 -m scripts.automation_core.provenance normalize-jsonl \
-      --source "$source_name" < "$input_file" > "$normalized_file"
+  normalizer_module="${MEMORY_HUB_NORMALIZER_MODULE:-scripts.automation_core.provenance}"
+  if ! PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m "$normalizer_module" normalize-jsonl \
+      --source "$source_name" < "$input_file" > "$normalized_file"; then
+    rm -f "$normalized_file"
+    return 1
+  fi
   mv "$normalized_file" "$final_file"
   rm -f "$input_file"
 }
@@ -151,16 +155,19 @@ if [[ "$SOURCE" == "workbuddy" ]]; then
       fi
     done < "$OUT"
     mv "$FILTERED" "$OUT"
-    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
     if [[ "$COUNT" -gt 0 ]]; then
       NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
-      normalize_capture_output workbuddy "$OUT" "$FINAL_OUT"
+      if ! normalize_capture_output workbuddy "$OUT" "$FINAL_OUT"; then
+        rm -f "$OUT" "$SEEN_TMP"
+        return 1
+      fi
       OUT="$FINAL_OUT"
+      mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
       printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
       echo "capture(workbuddy): $COUNT 条新观察 -> $OUT"
     else
-      rm -f "$OUT"
+      rm -f "$OUT" "$SEEN_TMP"
       echo "capture(workbuddy): 无新观察 (since=$SINCE_MS)"
     fi
   }
@@ -192,7 +199,7 @@ if [[ "$SOURCE" == "claude-mem" ]]; then
   FROM observations
   WHERE created_at_epoch > $SINCE_MS
   ORDER BY created_at_epoch ASC;" \
-    | jq -c '.[] | . + {session_meta: {session_id: "claude-mem", project_id: (.project // "")}}' > "$OUT"
+    | jq -c '.[] | . + {session_meta: {session_id: "claude-mem", project_id: ((.project // "") | gsub("\\\\"; "/") | split("/") | map(select(length > 0)) | .[-1] // "default-project")}}' > "$OUT"
   COUNT="$(wc -l < "$OUT" | tr -d ' ')"
   if [[ "$COUNT" -gt 0 ]]; then
     NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
@@ -317,16 +324,19 @@ if [[ "$SOURCE" == "claude-code" ]]; then
       fi
     done < "$OUT"
     mv "$FILTERED" "$OUT"
-    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
     if [[ "$COUNT" -gt 0 ]]; then
       NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
-      normalize_capture_output claude-code "$OUT" "$FINAL_OUT"
+      if ! normalize_capture_output claude-code "$OUT" "$FINAL_OUT"; then
+        rm -f "$OUT" "$SEEN_TMP"
+        return 1
+      fi
       OUT="$FINAL_OUT"
+      mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
       printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
       echo "capture(claude-code): $COUNT 条新观察 -> $OUT"
     else
-      rm -f "$OUT"
+      rm -f "$OUT" "$SEEN_TMP"
       echo "capture(claude-code): 无新观察 (since=$SINCE_MS)"
     fi
   }
@@ -429,16 +439,19 @@ run_capture() {
     fi
   done < "$OUT"
   mv "$FILTERED" "$OUT"
-  mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
 
   if [[ "$COUNT" -gt 0 ]]; then
     NEXT_SINCE="$(jq -r '.created_at_epoch' "$OUT" | tail -1)"
-    normalize_capture_output codex "$OUT" "$FINAL_OUT"
+    if ! normalize_capture_output codex "$OUT" "$FINAL_OUT"; then
+      rm -f "$OUT" "$SEEN_TMP"
+      return 1
+    fi
     OUT="$FINAL_OUT"
+    mv "$SEEN_TMP" "$ACTIVE_SEEN_FILE"
     printf '%s\n' "$NEXT_SINCE" > "$ACTIVE_SINCE_FILE"
     echo "capture(codex): $COUNT 条新观察 -> $OUT"
   else
-    rm -f "$OUT"
+    rm -f "$OUT" "$SEEN_TMP"
     echo "capture(codex): 无新观察 (since=$SINCE_MS)"
   fi
 }

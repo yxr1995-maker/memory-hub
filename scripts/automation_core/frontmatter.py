@@ -29,12 +29,16 @@ def parse_page(path: Path) -> PageDocument:
     content = path.read_bytes()
     if not content.startswith(b"---\n"):
         raise ValueError(f"missing opening frontmatter delimiter: {path}")
-    close = content.find(b"---\n", 4)
-    if close < 0:
-        raise ValueError(f"missing closing frontmatter delimiter: {path}")
-    header = content[4:close]
+    if content.startswith(b"---\n", 4):
+        header = b""
+        body = content[8:]
+    else:
+        close = content.find(b"\n---\n", 4)
+        if close < 0:
+            raise ValueError(f"missing closing frontmatter delimiter: {path}")
+        header = content[4:close]
+        body = content[close + 5 :]
     lines = tuple(header.decode("utf-8", errors="strict").splitlines())
-    body = content[close + 4 :]
 
     frontmatter: dict[str, object] = {}
     index = 0

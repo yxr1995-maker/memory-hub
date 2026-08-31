@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import sqlite3
 import subprocess
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -20,11 +21,143 @@ from scripts.automation_core.schema import normalize_id, new_operation_id
 from tests.helpers.full_auto_fixture import FullAutoFixture, sha256, write_page
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _write_page(root: Path, relative: str, content: bytes) -> Path:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
     return path
+
+
+def _write_codex_session(sessions: Path, private_cwd: str) -> None:
+    sessions.mkdir(parents=True, exist_ok=True)
+    (sessions / "session.jsonl").write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "session-1", "cwd": private_cwd},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "timestamp": "2026-08-31T00:00:00Z",
+                        "payload": {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": "safe fact"}
+                            ],
+                        },
+                    }
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _configure_capture_source(
+    root: Path, source: str, private_cwd: str
+) -> tuple[Path, dict[str, str]]:
+    staging = root / "staging"
+    data = root / "data"
+    staging.mkdir(parents=True)
+    data.mkdir()
+    env = dict(os.environ)
+    env.update(
+        {
+            "MEMORY_HUB_STAGING": str(staging),
+            "MEMORY_HUB_DATA": str(data),
+            "PYTHONPATH": str(ROOT),
+        }
+    )
+
+    if source == "codex":
+        sessions = root / "sessions"
+        _write_codex_session(sessions, private_cwd)
+        env["CODEX_SESSIONS_DIR"] = str(sessions)
+    elif source == "claude-code":
+        projects = root / "claude-projects"
+        projects.mkdir()
+        (projects / "session.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "timestamp": "2026-08-31T00:00:00Z",
+                    "cwd": private_cwd,
+                    "message": {"content": "safe fact"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        env["CLAUDE_PROJECTS_DIR"] = str(projects)
+    elif source == "workbuddy":
+        projects = root / "workbuddy-projects" / "memory-hub"
+        projects.mkdir(parents=True)
+        (projects / "session.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "timestamp": 1788134400000,
+                    "content": [{"type": "input_text", "text": "safe fact"}],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        env["WORKBUDDY_PROJECTS_DIR"] = str(root / "workbuddy-projects")
+    elif source == "claude-mem":
+        database = root / "claude-mem.db"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """CREATE TABLE observations (
+                    id TEXT, project TEXT, type TEXT, title TEXT, text TEXT,
+                    facts TEXT, narrative TEXT, concepts TEXT, files_read TEXT,
+                    files_modified TEXT, created_at TEXT,
+                    created_at_epoch INTEGER
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO observations
+                   (id, project, type, text, created_at, created_at_epoch)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "mem-1",
+                    private_cwd,
+                    "message",
+                    "safe fact",
+                    "2026-08-31T00:00:00Z",
+                    1788134400000,
+                ),
+            )
+        env["CLAUDE_MEM_DB"] = str(database)
+    else:
+        raise AssertionError(f"unsupported capture source: {source}")
+
+    return staging, env
+
+
+def _capture_source(
+    root: Path, source: str, private_cwd: str
+) -> tuple[subprocess.CompletedProcess[str], Path, dict[str, str]]:
+    staging, env = _configure_capture_source(root, source, private_cwd)
+    args = ["bash", "scripts/capture.sh", "--source", source, "--all"]
+    capture = subprocess.run(
+        args,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return capture, staging, env
 
 
 def test_provenance_is_stable_and_body_patch_is_exact(tmp_path: Path) -> None:
@@ -77,6 +210,7 @@ def test_parse_page_rejects_malformed_or_unsafe_frontmatter(
     contents = (
         b"title: missing-open\n---\nbody\n",
         b"---\ntitle: missing-close\nbody\n",
+        b"---\ntitle: value---\nnot-a-delimiter\n---\nbody\n",
         b"---\nscope: project\nscope: agent\n---\nbody\n",
         b"---\ntitle: \xff\n---\nbody\n",
     )
@@ -87,6 +221,12 @@ def test_parse_page_rejects_malformed_or_unsafe_frontmatter(
         except (UnicodeDecodeError, ValueError):
             continue
         raise AssertionError(f"malformed frontmatter was accepted: case {index}")
+
+
+def test_parse_page_accepts_an_empty_frontmatter_block(tmp_path: Path) -> None:
+    page = parse_page(_write_page(tmp_path, "empty.md", b"---\n---\nbody\n"))
+    assert page.frontmatter == {}
+    assert page.body == b"body\n"
 
 
 def test_patch_frontmatter_renders_canonical_scalars_and_lists(tmp_path: Path) -> None:
@@ -143,6 +283,24 @@ def test_normalize_jsonl_filters_private_session_metadata() -> None:
     assert "/Users/real-user" not in sink.getvalue()
 
 
+def test_session_project_id_wins_and_is_reduced_to_a_controlled_leaf() -> None:
+    raw = {
+        "id": "42",
+        "project": "/Users/real-user/private/raw-project",
+        "text": "safe fact",
+        "created_at": "2026-08-31T00:00:00Z",
+    }
+    session = {
+        "session_id": "s-1",
+        "project_id": "/Users/another-user/private/controlled-project",
+    }
+    observation = normalize_observation(raw, "claude-mem", session)
+    assert observation.project_id == "controlled-project"
+    rendered = render_observation_report(observation)
+    assert "real-user" not in rendered
+    assert "another-user" not in rendered
+
+
 def test_full_auto_fixture_seeds_verify_dependencies(tmp_path: Path) -> None:
     fixture = FullAutoFixture.create(tmp_path / "evidence")
     try:
@@ -159,56 +317,10 @@ def test_full_auto_fixture_seeds_verify_dependencies(tmp_path: Path) -> None:
 
 
 def test_capture_and_distill_use_normalized_provenance(tmp_path: Path) -> None:
-    sessions = tmp_path / "sessions"
-    staging = tmp_path / "staging"
     wiki = tmp_path / "wiki"
-    data = tmp_path / "data"
-    for directory in (sessions, staging, wiki, data):
-        directory.mkdir()
+    wiki.mkdir()
     private_cwd = "/Users/real-user/private/memory-hub"
-    session_file = sessions / "session.jsonl"
-    session_file.write_text(
-        "\n".join(
-            (
-                json.dumps(
-                    {
-                        "type": "session_meta",
-                        "payload": {"id": "session-1", "cwd": private_cwd},
-                    }
-                ),
-                json.dumps(
-                    {
-                        "type": "response_item",
-                        "timestamp": "2026-08-31T00:00:00Z",
-                        "payload": {
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": "safe fact"}],
-                        },
-                    }
-                ),
-            )
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    env = dict(os.environ)
-    env.update(
-        {
-            "CODEX_SESSIONS_DIR": str(sessions),
-            "MEMORY_HUB_STAGING": str(staging),
-            "MEMORY_HUB_DATA": str(data),
-            "WIKI_PATH": str(wiki),
-            "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
-        }
-    )
-    capture = subprocess.run(
-        ["bash", "scripts/capture.sh", "--all"],
-        cwd=Path(__file__).resolve().parents[1],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    capture, staging, env = _capture_source(tmp_path, "codex", private_cwd)
     assert capture.returncode == 0, capture.stderr
     output = next(staging.glob("observations-*.jsonl"))
     record = json.loads(output.read_text(encoding="utf-8"))
@@ -219,7 +331,7 @@ def test_capture_and_distill_use_normalized_provenance(tmp_path: Path) -> None:
 
     distill = subprocess.run(
         ["bash", "scripts/distill.sh", str(output)],
-        cwd=Path(__file__).resolve().parents[1],
+        cwd=ROOT,
         env=env,
         text=True,
         capture_output=True,
@@ -232,3 +344,57 @@ def test_capture_and_distill_use_normalized_provenance(tmp_path: Path) -> None:
     assert record["provenance_id"] in rendered
     assert record["cwd_hash"] in rendered
     assert private_cwd not in rendered
+
+
+def test_all_capture_sources_publish_controlled_provenance(tmp_path: Path) -> None:
+    private_cwd = "/Users/real-user/private/memory-hub"
+    for source in ("codex", "claude-code", "claude-mem", "workbuddy"):
+        capture, staging, _ = _capture_source(tmp_path / source, source, private_cwd)
+        assert capture.returncode == 0, f"{source}: {capture.stderr}"
+        output = next(staging.glob("observations-*.jsonl"))
+        rendered = output.read_text(encoding="utf-8")
+        record = json.loads(rendered)
+        assert record["source"] == source
+        assert record["project_id"] == "memory-hub"
+        assert "session_meta" not in record
+        assert private_cwd not in rendered
+        assert "real-user" not in rendered
+
+
+def test_normalizer_failure_preserves_seen_and_since_for_retry(
+    tmp_path: Path,
+) -> None:
+    private_cwd = "/Users/real-user/private/memory-hub"
+    state_files = {
+        "codex": (".seen", ".since"),
+        "claude-code": (".seen.claude-code", ".since.claude-code"),
+        "workbuddy": (".seen.workbuddy", ".since.workbuddy"),
+        "claude-mem": (None, ".since"),
+    }
+    for source, (seen_name, since_name) in state_files.items():
+        staging, env = _configure_capture_source(tmp_path / source, source, private_cwd)
+        since = staging / since_name
+        since.write_text("123\n", encoding="utf-8")
+        seen = staging / seen_name if seen_name else None
+        if seen:
+            seen.write_text("baseline\n", encoding="utf-8")
+        env["MEMORY_HUB_NORMALIZER_MODULE"] = "does.not.exist"
+        args = ["bash", "scripts/capture.sh", "--source", source, "--since", "0"]
+        failed = subprocess.run(
+            args, cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        )
+        assert failed.returncode != 0, f"{source}: {failed.stderr}"
+        assert since.read_text(encoding="utf-8") == "123\n"
+        if seen:
+            assert seen.read_text(encoding="utf-8") == "baseline\n"
+        assert not list(staging.glob("observations-*.jsonl"))
+
+        env.pop("MEMORY_HUB_NORMALIZER_MODULE")
+        retried = subprocess.run(
+            args, cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        )
+        assert retried.returncode == 0, f"{source}: {retried.stderr}"
+        assert list(staging.glob("observations-*.jsonl"))
+        assert since.read_text(encoding="utf-8") != "123\n"
+        if seen:
+            assert seen.read_text(encoding="utf-8") != "baseline\n"
