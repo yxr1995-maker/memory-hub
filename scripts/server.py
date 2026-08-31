@@ -1,3 +1,6 @@
+import sys, pathlib
+_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 from scripts.automation_core.query_planner import SearchRequest
 from scripts.automation_core.service import MemoryService
 #!/usr/bin/env python3
