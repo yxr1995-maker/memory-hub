@@ -21,7 +21,7 @@
 - scope 是检索与注入命名空间，**不是** ACL、用户授权或租户隔离机制；
 - 不删除、不截断、不改写任一历史页面正文；
 - 不同步其他 wiki 仓库，不增加常驻服务，不修改外部 automation 的调度；
-- 不在实现、测试或验收时读取、写入、暂存或提交真实 `~/llm-wiki`，除非操作者在独立运行时显式将它作为 `WIKI_PATH`；
+- 不在实现、测试或验收时读取、写入、暂存或提交真实 `~/llm-wiki`，也不得从真实 `$HOME` 解析 verify 依赖；每个 fixture 必须显式注入 `WIKI_PATH`、`MEMORY_HUB_DATA`、`CODEX_SESSIONS_DIR`、`CODEX_AUTOMATIONS_DIR`、`CODEX_CONFIG_FILE`、`CODEX_HOOKS_FILE` 与 `AUTOMATIONS_DB`，除非操作者在独立运行时显式将真实路径作为对应变量；
 - 不记录令牌、Cookie、Authorization 头、LLM 请求正文或未脱敏 observations。
 
 ### 1.3 规范术语
@@ -182,7 +182,13 @@ distill/publish 在每个新页发布前执行 `successor_plan()`：先以同 `s
 
 ### 5.3 原子 journal、回滚与索引
 
-发布顺序必须是：
+每个写 operation 必须从不可变 `OperationContext` 一次性构造一个显式 `TransactionContext`：它包含该 `OperationContext`、唯一根 `OperationJournal` 和仅测试使用的 `FailureHook | None`，其中 `FailureHook = Callable[[str], None]`。Task 8、10、11 的所有事务函数都显式接收此 `tx`；不得从隐式 context 取 journal、不得创建 lifecycle/cluster 局部 journal。生命周期 prepared 值只可保留对同一 `tx` 的引用。生产调用传 `failure_hook=None`；fixture 传在命名点抛出 `InjectedFailure` 的 hook。
+
+successor lifecycle 事务分为“准备页面”和“index 后完成”两个明确阶段。`prepare_successor_pages(plan, tx)` 只能验证路径/图、在 `tx.journal` 注册 A/B 页面和 lifecycle checkpoint 的 before images、写入 `PREPARED`、验证 temp 并原子 rename A/B 页面；它不得 rebuild/swap index，也不得标为 `COMMITTED`。`finalize_successor_after_index(prepared, tx)` 只能在**同一** `tx.journal` 已具有 `INDEX_SWAPPED` checkpoint 后验证 A/B hash/frontmatter 并标为 `COMMITTED`。
+
+`maintain` 的唯一顺序中，`publish pages/lifecycle` 只调用 prepare，Task 11 的 `index swap` 阶段只执行一次 index rebuild/swap、记录 `INDEX_SWAPPED`，随后调用 finalize；任何 lifecycle 代码不得再触发第二次 swap。独立手动 publish 可使用包装器 `prepare → one index swap → finalize`，但同样只允许该一次 swap。
+
+发布/手动包装器的顺序必须是：
 
 ```text
 validate all paths and cycle-free plan
@@ -190,11 +196,12 @@ validate all paths and cycle-free plan
 -> write/verify B temp (active, supersedes, valid_at)
 -> write/verify A temp (deprecated, deprecated_by, invalid_at)
 -> atomic rename both pages, recording each completed step
--> rebuild/swap index atomically
--> mark COMMITTED
+-> keep journal PREPARED pending the caller's one index swap
+-> caller rebuilds/swaps index atomically and records INDEX_SWAPPED
+-> finalize verifies A/B and marks COMMITTED
 ```
 
-两个文件系统 rename 无法成为单一内核事务，因此 journal 是恢复真相源。任何步骤失败、验证 hash/frontmatter 失败、索引重建失败或进程重启时，recovery 必须按 journal 恢复操作前的 A/B 内容并重建上一个有效索引；绝不留下半对生命周期字段。每个 `operation-id` 的 before images、plan、完成步骤、rollback 结果和精简路径清单存于 `$MEMORY_HUB_DATA/transactions/<operation-id>/`，文件权限 0700。
+两个文件系统 rename 无法成为单一内核事务，因此唯一根 journal 是恢复真相源。`prepare.before_images`、`prepare.rename_new`、`prepare.rename_old`、`index.before_swap`、`index.after_swap`、`finalize.verify_pair`、`manifest.before_replace` 和 `manifest.after_replace` 都必须通过 `tx.failure_hook(point)`（非空时）调用。prepare、唯一 index swap、finalize、manifest、archive、exact stage、hash/frontmatter 验证或进程重启中的任何失败，都由同一个 `rollback_transaction(tx)` 按 journal 逆序恢复操作前的 pages/frontmatter、index 与 manifest（若已经写入）；rollback 只能撤销 journal 记录的 operation-owned stage，绝不触碰用户 baseline 已有 staged。绝不留下半对生命周期字段或第二次 swap。每个 `operation-id` 的 before images、plan、完成步骤、rollback 结果和精简路径清单存于 `$MEMORY_HUB_DATA/transactions/<operation-id>/`，文件权限 0700。
 
 同一 successor plan 的重跑必须无写入；若当前 A/B 已具有互为对应的字段和同一 hash 语义，输出 `idempotent_skip`。若 A 后来指向第三页 C，旧 A→B 请求不能覆盖该状态，记录 `concurrent_successor` 并跳过。
 
@@ -202,7 +209,7 @@ validate all paths and cycle-free plan
 
 ### 6.1 输入选择与聚类
 
-`maintain` 自动扫描所有日期命名 `staging/observations-*.jsonl`，而非仅最新文件；排除 `realtime`、`test` 与已经由 manifest 消费的 observation id。只接受已通过 schema、长度 20–2,000 字符、包含项目键和非空 id 的 observations。日志、命令输出、疑似密钥、私有目录片段先经 `sanitize_text` 去除或掩码。
+`maintain` 自动扫描所有日期命名 `staging/observations-*.jsonl`，而非仅最新文件；排除 `realtime`、`test` 与已经由 manifest 消费的 observation id。只接受已通过 schema、长度 20–2,000 字符、包含项目键和非空 id 的 observations。日志、命令输出、疑似密钥、私有目录片段先经 `sanitize_text` 去除或掩码。Observation JSONL、operation/report 与 frontmatter 不得持久化原始 `session_cwd`、绝对 cwd 或真实 home 前缀；若需 provenance，只保存受控 `project_id` 与不可逆 `cwd_hash`。
 
 按 `project scope_id` 分桶，再采用确定性凝聚聚类：优先 embedding cosine ≥ 0.80，embedding 不可用时使用字符 3-gram Jaccard ≥ 0.52。簇必须至少包含 3 条 observations、跨至少 2 个 UTC 日期、时间跨度不超过 45 天；不满足的 observation 保留给后续轮次。稳定 cluster key 为成员 id 的排序 SHA-256 前缀，禁止以运行时间作为幂等键。
 
@@ -212,30 +219,27 @@ validate all paths and cycle-free plan
 
 全自动写流程共用 `$MEMORY_HUB_DATA/locks/automation.lock`。锁用原子 `mkdir` 创建，内容含 PID、host、operation id、启动 monotonic/UTC 时间；取得失败时必须退出码 75 并报告持锁 operation。仅在 PID 不存在且超过保守 TTL 30 分钟后，才允许抢救为 stale lock，且必须把旧锁证据归档；永不删除仍存活进程的锁。
 
-在锁内，`maintain` 必须严格按以下顺序执行，并在每阶段写 journal checkpoint：
+在锁内，`maintain` 的唯一写入顺序裁决如下；实现不得插入或重排任何会改变 pages、frontmatter、index、manifest、archive 或 Git 状态的阶段，并且每一步均写 journal checkpoint：
 
 ```text
-preflight/path+git baseline
--> fix deadlinks
--> backfill timestamps
--> backfill links
--> scan all eligible observations
--> deterministic clustering
--> write merge-page staging
--> successor transaction + publish
--> atomically update cluster manifest
--> rebuild/swap index
+validate
+-> publish pages/lifecycle
+-> index swap
 -> lint
--> exact stage + commit
+-> atomic manifest commit
+-> archive
+-> exact stage/commit
 ```
 
-manifest 路径为 `$MEMORY_HUB_DATA/manifests/cluster-observations-v1.json`，键为 cluster key，值包含已消费 observation-id hashes、生成页面相对路径、生成内容 hash、operation id 与成功阶段。manifest 的更新同样使用 temp + fsync + rename，且只在新页发布、索引与 lint 都成功后提交。重跑必须对已有 cluster key 报告 `manifest_skip`，不得再发布或再次消费同一组 observation。
+`validate` 包含 path/Git baseline、deadlink/timestamp/link 的计划与验证、observation 扫描、聚类和 merge-page staging，但在 `publish pages/lifecycle` 前不改变受控写入状态。checkpoint 名称固定为 `VALIDATED`、`PAGES_LIFECYCLE_PUBLISHED`、`INDEX_SWAPPED`、`LINT_PASSED`、`MANIFEST_COMMITTED`、`ARCHIVED`、`STAGE_COMMITTED`。
+
+manifest 路径为 `$MEMORY_HUB_DATA/manifests/cluster-observations-v1.json`，键为 cluster key，值包含已消费 observation-id hashes、生成页面相对路径、生成内容 hash、operation id 与成功阶段。manifest 的更新同样使用 temp + fsync + rename，且 `commit_manifest()` 只能在 journal 同时具有 `INDEX_SWAPPED` 与 `LINT_PASSED` 后执行；它写完才记录 `MANIFEST_COMMITTED`。重跑必须对已有 cluster key 报告 `manifest_skip`，不得再发布或再次消费同一组 observation。
 
 ### 6.3 失败回滚与精确提交
 
-任一阶段非零必须停止。发布前失败不会写 wiki；发布后、manifest 前失败必须依据 lifecycle journal 删除**仅本 operation 新建且 hash 相同**的合并页、还原修改过的 frontmatter、还原 index，并保留失败报告。拒绝执行宽泛的 `git reset --hard`、`git add -A`、`git commit -a` 或删目录清理。
+任一阶段非零必须停止。发布前失败不会写 wiki；发布后任一失败必须依据 operation/lifecycle journal 删除**仅本 operation 新建且 hash 相同**的合并页、还原修改过的 frontmatter 和 pages、还原 index，并把 manifest 恢复为 operation 前的字节（因此失败 operation 的 manifest 不变）。即使失败发生在 manifest commit、archive 或 exact stage/commit 后，也必须执行同一恢复并保留失败报告。拒绝执行宽泛的 `git reset --hard`、`git add -A`、`git commit -a` 或删目录清理。
 
-预检记录 wiki 的初始 unstaged/staged 路径集合。成功时允许暂存的精确白名单仅包括本 operation 创建或验证修改过的：合并页、旧/新 successor 页、`index.md`、`log.md`；它们必须先逐个比较 operation journal hash。`git diff --cached --name-only` 必须与 whitelist 完全相等，否则先执行 `git restore --staged` 仅对本 operation 已 stage 的路径、保留用户已有 staged 改动，并失败退出。提交信息为 `chore(wiki): memory-hub maintain <operation-id>`。若 wiki 不在 Git 仓库，自动发布仍可完成但报告 `commit=not-a-repository`，不得伪称已提交。
+预检记录 wiki 的初始 unstaged/staged 路径集合。若 baseline staged 集合非空，operation 必须保持 index 原样、不执行任何 stage 或 commit，返回 `preexisting_staged` 并安全失败。仅当 baseline staged 集合为空时，才允许暂存本 operation 创建或验证修改过且逐个匹配 journal after-hash 的精确白名单：合并页、旧/新 successor 页、`index.md`、`log.md`。此时 `git diff --cached --name-only` 必须严格等于该 verified whitelist；任一偏差仅撤销本 operation 已暂存的路径并失败，不得接纳、保留或提交额外 cached 路径。提交信息为 `chore(wiki): memory-hub maintain <operation-id>`。若 wiki 不在 Git 仓库，自动发布仍可完成但报告 `commit=not-a-repository`，不得伪称已提交。
 
 ## 7. 无参数默认、退出开关与兼容迁移
 
@@ -289,7 +293,7 @@ manifest 路径为 `$MEMORY_HUB_DATA/manifests/cluster-observations-v1.json`，�
 
 报告根为 `$MEMORY_HUB_DATA/reports/`：`scope-<operation-id>.jsonl`、`query-plan-<operation-id>.jsonl`、`lifecycle-<operation-id>.jsonl`、`cluster-<operation-id>.md`、`operation-<operation-id>.json`。日志仅保存安全的相对路径、hash、计数、错误类别和截断长度；不得保存 token、绝对家目录、raw text、完整提示词或 HTTP 响应。
 
-下列情形必须显式告警并使本次 operation 安全失败：锁不可取得、路径越界、journal 恢复失败、frontmatter 无法解析、index swap 失败、successor 图有环、manifest 原子写失败、Git staged 集合不精确。LLM/proxy 失败是可降级的 `warning`，不是失败。
+下列情形必须显式告警并使本次 operation 安全失败：锁不可取得、路径越界、journal 恢复失败、frontmatter 无法解析、index swap 失败、successor 图有环、manifest 原子写失败、baseline 已有 staged 路径、Git cached 集合与 verified whitelist 不精确。LLM/proxy 失败是可降级的 `warning`，不是失败。
 
 ## 10. 实现切分与测试要求
 
@@ -308,7 +312,7 @@ shell 入口必须保持薄层。所有路径经 `Path.resolve()` 后验证在�
 
 ### 10.2 单元、集成与回归测试
 
-新增测试不得依赖真实 home、真实 wiki、网络、模型或 Git 用户配置；每个 fixture 使用临时 `WIKI_PATH`、`MEMORY_HUB_DATA` 和单独 init 的 fixture Git repo。
+新增测试不得依赖真实 home、真实 wiki、网络、模型或 Git 用户配置；每个 fixture 使用临时 `HOME`（作为禁止读取的空/不可用 home）、`WIKI_PATH`、`MEMORY_HUB_DATA`、`CODEX_SESSIONS_DIR`、`CODEX_AUTOMATIONS_DIR`、`CODEX_CONFIG_FILE`、`CODEX_HOOKS_FILE`、`AUTOMATIONS_DB` 和单独 init 的 fixture Git repo。所有 verify 依赖必须由 fixture 创建并播种；空 fixture 不得假设 `verify` 为绿，测试必须先断言缺依赖时的预期非零，再播种最小有效数据后断言 exit 0，且捕获的 resolved dependency paths 均在 fixture root 内、没有读取真实 `$HOME`。
 
 | 测试组 | 必测场景与二元可观察结果 |
 |---|---|
@@ -316,10 +320,11 @@ shell 入口必须保持薄层。所有路径经 `Path.resolve()` 后验证在�
 | `test_index_scope.py` | 旧 schema 读兼容、新列完整、原子重建故障不替换旧 DB；断言 SQLite 列与 DB hash |
 | `test_query_planner.py` | L0 限额、LLM 成功、429/超时/无效 JSON 本地降级、原 query 无扩词；断言 planner 与 audit reason |
 | `test_surface_parity.py` | CLI、MCP、REST 对相同 fixture query/scope 的 path 顺序和 top-1 一致；断言 JSON 响应 |
-| `test_successor_lifecycle.py` | 高/中/低阈值、成对字段、图环拒绝、跨进程恢复、重复运行无写入；断言前后 hash 和 journal 状态 |
-| `test_cluster_maintain.py` | 跨日 3 成员簇、单日/弱簇不发布、embedding/local 两法、manifest 幂等、发布失败回滚；断言页/manifest/Git 状态 |
-| `test_operation_safety.py` | 活锁、stale lock、路径白名单、用户预先 staged 文件、whitelist mismatch；断言退出码 75/非零及未污染 staged 集 |
-| 既有 tests | `pytest tests/`、`MH_FUSE_SELFCHECK=1 python3 scripts/fuse.py`、`./memory-hub.sh verify` 保持通过 |
+| `test_successor_lifecycle.py` | 高/中/低阈值、成对字段、图环拒绝、跨进程恢复、重复运行无写入，以及 fixture `FailureHook` 在 `prepare.rename_new`、唯一 `index.before_swap`、`finalize.verify_pair` 注入失败；断言每个失败后 pages/frontmatter/index/manifest 为 operation 前字节、前后 hash 和唯一 journal 状态 |
+| `test_cluster_maintain.py` | 跨日 3 成员簇、单日/弱簇不发布、embedding/local 两法、manifest 幂等，以及 index/lint/manifest/archive/stage 失败；断言唯一顺序、回滚后 pages/frontmatter/index/manifest 均为 operation 前字节 |
+| `test_operation_safety.py` | 活锁、stale lock、路径白名单、baseline 已 staged 的 `preexisting_staged` 安全失败、whitelist mismatch；断言 baseline 非空时 index 未变且无 stage/commit，baseline 为空时 cached 严格等于 verified whitelist，偏差仅撤销本 operation stage |
+| `test_verify_isolation.py` 与真实 CLI fixture | 依赖注入、空 fixture 预期失败、播种后 verify 通过，以及临时 HOME/所有显式变量的 resolved-path 断言；断言没有读取真实 `$HOME` |
+| 既有 tests | `pytest tests/`、`MH_FUSE_SELFCHECK=1 python3 scripts/fuse.py`、使用隔离 fixture 的 `./memory-hub.sh verify` 保持通过 |
 
 ### 10.3 真实 CLI 验收（隔离 fixture，不触碰 live wiki）
 
@@ -330,6 +335,14 @@ fixture_root="$(mktemp -d)"
 export WIKI_PATH="$fixture_root/wiki"
 export MEMORY_HUB_DATA="$fixture_root/data"
 export CODEX_SESSIONS_DIR="$fixture_root/sessions"
+export HOME="$fixture_root/forbidden-home"
+export CODEX_AUTOMATIONS_DIR="$fixture_root/automations"
+export CODEX_CONFIG_FILE="$fixture_root/codex-config.toml"
+export CODEX_HOOKS_FILE="$fixture_root/hooks.json"
+export AUTOMATIONS_DB="$fixture_root/automations.db"
+python3 -m tests.helpers.full_auto_fixture seed-verify-dependencies --root "$fixture_root" \
+  --automations "$CODEX_AUTOMATIONS_DIR" --config "$CODEX_CONFIG_FILE" \
+  --hooks "$CODEX_HOOKS_FILE" --db "$AUTOMATIONS_DB" --wiki "$WIKI_PATH"
 
 ./memory-hub.sh scope-backfill --apply
 ./memory-hub.sh index
@@ -340,7 +353,7 @@ pytest tests/
 ./memory-hub.sh verify
 ```
 
-验收必须验证以下二元事实：scope-backfill 退出 0 且每个 fixture 页有合法 scope；搜索退出 0 且 explain 的 planner 为 `llm` 或 `local`；`run --safe`/`maintain --safe` 退出 0 且 fixture wiki Git diff 为空；全自动 fixture 操作退出 0 后有一页 cluster、正确 successor 双向字段、manifest 与 atomic index、并且 `git diff --cached --name-only` 等于 operation whitelist；第二次相同 maintain 退出 0 且 cluster 页数不增加。任何一项失败均不得宣布 B 路线完成。
+验收必须验证以下二元事实：scope-backfill 退出 0 且每个 fixture 页有合法 scope；搜索退出 0 且 explain 的 planner 为 `llm` 或 `local`；`run --safe`/`maintain --safe` 退出 0 且 fixture wiki Git diff 为空；全自动 fixture 操作退出 0 后有一页 cluster、正确 successor 双向字段、manifest 与 atomic index、并且 `git diff --cached --name-only` 等于 operation whitelist；第二次相同 maintain 退出 0 且 cluster 页数不增加；`verify` 在未播种 fixture 时预期非零、在播种后 exit 0，且其报告的 automation/config/hooks/DB/wiki resolved paths 均前缀匹配 `$fixture_root`，`$HOME/.codex` 不存在。任何一项失败均不得宣布 B 路线完成。
 
 ## 11. 发布门槛
 
