@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # memctl 主入口 (All-in-One Agent 记忆 CLI)
-# 子命令: capture | distill | publish | search | inject | status | watch | run | help
+# 子命令: capture | distill | scope-backfill | publish | search | inject | status | watch | run | help
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +11,7 @@ usage() {
   echo "  capture             采集: 解析 Codex 会话 JSONL → staging/（--all 全量 / --since <ms> / --source claude-mem）"
   echo "  embed [index|search] 语义/向量检索（fastembed 本地模型，增量索引 + 余弦相似度）"
 echo "  distill [--llm]     蒸馏: → staging/pages/（L0摘要/L1概述/L2明细，免费模型摘要可选）"
+  echo "  scope-backfill [--apply] [--limit N] [--cursor C] [--json]  确定性 scope 回填（默认 dry-run）"
   echo "  publish [--apply]   发布: → ~/llm-wiki 按 type 映射目录 + index/log（默认 dry-run）"
   echo "  search \"词\" [--top N] [--raw] [--all] [--gbrain]  检索 ~/llm-wiki"
   echo "  index [--with-raw]    索引 ~/llm-wiki → SQLite FTS5（trigram 中文分词）"
@@ -42,6 +43,7 @@ fi
 case "$CMD" in
   capture) exec "$HUB_DIR/scripts/capture.sh" "$@" ;;
   distill) exec "$HUB_DIR/scripts/distill.sh" "$@" ;;
+  scope-backfill) exec python3 "$HUB_DIR/scripts/automation_cli.py" scope-backfill "$@" ;;
   embed) exec python3 "$HUB_DIR/scripts/embed.py" "$@" ;;
   publish) exec "$HUB_DIR/scripts/publish.sh" "$@" ;;
   search) exec "$HUB_DIR/scripts/search.sh" "$@" ;;
