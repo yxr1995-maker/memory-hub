@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # memctl 主入口 (All-in-One Agent 记忆 CLI)
-# 子命令: capture | distill | scope-backfill | publish | search | inject | status | watch | maintain | run | help
+# 子命令: capture | distill | scope-backfill | publish | search | index | ask | export | inject | eval | archive | status | verify | metrics | serve | watch | maintain | run | help
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HUB_DIR"
+export PYTHONPATH="$HUB_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 usage() {
   echo "用法: memory-hub.sh <命令> [参数]"

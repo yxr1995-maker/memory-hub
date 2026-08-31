@@ -1,3 +1,6 @@
+import sys, pathlib
+_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 #!/usr/bin/env python3
 """memory-hub fuse: FTS5(bm25) + 向量检索 融合 (RRF k=60) + 时间衰减(F2)"""
 import argparse

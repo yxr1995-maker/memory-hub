@@ -1,11 +1,14 @@
-#!/usr/bin/env python3
-"""CLI entry points for deterministic automation operations."""
 from __future__ import annotations
+
+import sys
+import pathlib
+_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 import argparse
 import json
 import os
-import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -131,6 +134,48 @@ def _ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def _maintain(args: argparse.Namespace) -> int:
+    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, maintain_pipeline, parse_mode
+    from scripts.automation_core.operation import GitBaseline, begin_transaction
+    opts = parse_mode("maintain", sys.argv[2:])
+    wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
+    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
+    operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
+    ctx = OperationContext(
+        operation_id=operation_id,
+        command="maintain",
+        mode=opts.mode,
+        auto=(opts.mode == Mode.AUTO),
+        apply=opts.apply,
+        wiki_path=wiki,
+        data_path=data,
+    )
+    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
+    report = maintain_pipeline(tx, StageRunner())
+    return 0 if report.result in ("committed", "safe") else 1
+
+
+def _run(args: argparse.Namespace) -> int:
+    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, run_pipeline, parse_mode
+    from scripts.automation_core.operation import GitBaseline, begin_transaction
+    opts = parse_mode("run", sys.argv[2:])
+    wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
+    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
+    operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
+    ctx = OperationContext(
+        operation_id=operation_id,
+        command="run",
+        mode=opts.mode,
+        auto=(opts.mode == Mode.AUTO),
+        apply=opts.apply,
+        wiki_path=wiki,
+        data_path=data,
+    )
+    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
+    report = run_pipeline(tx, StageRunner())
+    return 0 if report.result in ("committed", "safe") else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="memory-hub automation operations")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -175,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     ask_p.add_argument("--json", action="store_true")
     ask_p.set_defaults(handler=_ask)
 
+    # maintain
     maintain_p = subparsers.add_parser("maintain", help="maintain pipeline")
     maintain_p.add_argument("--safe", action="store_true")
     maintain_p.add_argument("--no-auto", action="store_true")
@@ -182,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     maintain_p.add_argument("--commit", action="store_true")
     maintain_p.set_defaults(handler=_maintain)
 
+    # run
     run_p = subparsers.add_parser("run", help="run pipeline")
     run_p.add_argument("--safe", action="store_true")
     run_p.add_argument("--no-auto", action="store_true")
@@ -200,45 +247,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-def _maintain(args: argparse.Namespace) -> int:
-    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, maintain_pipeline, parse_mode
-    from scripts.automation_core.operation import GitBaseline, begin_transaction
-    opts = parse_mode("maintain", sys.argv[2:])
-    wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
-    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
-    operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
-    ctx = OperationContext(
-        operation_id=operation_id,
-        command="maintain",
-        mode=opts.mode,
-        auto=(opts.mode == Mode.AUTO),
-        apply=opts.apply,
-        wiki_path=wiki,
-        data_path=data,
-    )
-    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
-    report = maintain_pipeline(tx, StageRunner())
-    return 0 if report.result in ("committed", "safe") else 1
-
-
-def _run(args: argparse.Namespace) -> int:
-    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, run_pipeline, parse_mode
-    from scripts.automation_core.operation import GitBaseline, begin_transaction
-    opts = parse_mode("run", sys.argv[2:])
-    wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
-    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
-    operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
-    ctx = OperationContext(
-        operation_id=operation_id,
-        command="run",
-        mode=opts.mode,
-        auto=(opts.mode == Mode.AUTO),
-        apply=opts.apply,
-        wiki_path=wiki,
-        data_path=data,
-    )
-    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
-    report = run_pipeline(tx, StageRunner())
-    return 0 if report.result in ("committed", "safe") else 1
