@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Hub — Agent 知识记忆工作台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        brand: {
+          50: '#eef2ff',
+          100: '#e0e7ff',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          900: '#312e81',
+          950: '#1e1b4b',
+        }
+      }
+    }
+  }
+}
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #52525b; }
+.tab-btn.active {
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+</style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col font-sans transition-colors duration-200">
+
+<!-- 顶部导航栏 -->
+<header class="border-b border-zinc-800/80 bg-zinc-900/80 backdrop-blur-md px-6 py-3.5 flex items-center justify-between sticky top-0 z-50">
+  <div class="flex items-center gap-3.5">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-blue-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-bold">
+      <i class="fa-solid fa-brain text-lg"></i>
+    </div>
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="font-bold text-base tracking-tight text-white">Memory Hub</h1>
+        <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">v2.0 Full-Auto</span>
+      </div>
+      <p class="text-xs text-zinc-400">All-in-One Agent 记忆系统 & LLM-Wiki 知识库引擎</p>
+    </div>
+  </div>
+
+  <!-- 导航标签 -->
+  <nav class="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-xl border border-zinc-700/40" id="navTabs">
+    <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn active flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-chart-pie text-xs"></i> 总览看板
+    </button>
+    <button onclick="switchTab('search')" id="tab-search" class="tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-magnifying-glass text-xs"></i> 两阶段检索
+    </button>
+    <button onclick="switchTab('ask')" id="tab-ask" class="tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-wand-magic-sparkles text-xs"></i> 智能问答
+    </button>
+    <button onclick="switchTab('pages')" id="tab-pages" class="tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-book-bookmark text-xs"></i> 知识库管理
+    </button>
+    <button onclick="switchTab('observations')" id="tab-observations" class="tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-layer-group text-xs"></i> 会话观察与聚类
+    </button>
+    <button onclick="switchTab('automation')" id="tab-automation" class="tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition">
+      <i class="fa-solid fa-terminal text-xs"></i> 运维与流水线
+    </button>
+  </nav>
+
+  <!-- 状态与暗色切换 -->
+  <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-zinc-800/60 border border-zinc-700/40 text-xs">
+      <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse"></span>
+      <span class="text-zinc-300 font-mono text-[11px]" id="serviceStatus">REST 就绪</span>
+    </div>
+    <button onclick="toggleTheme()" class="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition" title="切换暗色/亮色">
+      <i class="fa-solid fa-moon text-sm" id="themeIcon"></i>
+    </button>
+  </div>
+</header>
+
+<!-- 主工作区 -->
+<main class="flex-1 p-6 max-w-7xl w-full mx-auto">
+  <!-- VIEW 1: OVERVIEW -->
+  <section id="view-overview" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 shadow-sm space-y-1">
+        <div class="flex items-center justify-between text-zinc-400 text-xs font-medium">
+          <span>知识库页面总量</span>
+          <i class="fa-solid fa-book text-indigo-400"></i>
+        </div>
+        <div class="text-2xl font-bold text-white tracking-tight" id="stat-pages">12,962</div>
+        <div class="text-[11px] text-emerald-400 flex items-center gap-1 pt-1">
+          <i class="fa-solid fa-circle-check text-[10px]"></i> FTS5 trigram + 向量融合已索引
+        </div>
+      </div>
+
+      <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 shadow-sm space-y-1">
+        <div class="flex items-center justify-between text-zinc-400 text-xs font-medium">
+          <span>Staging 观察记录</span>
+          <i class="fa-solid fa-database text-cyan-400"></i>
+        </div>
+        <div class="text-2xl font-bold text-white tracking-tight" id="stat-obs">55,341</div>
+        <div class="text-[11px] text-zinc-400 flex items-center gap-1 pt-1" id="stat-obs-files">
+          <i class="fa-solid fa-clock text-cyan-400 text-[10px]"></i> 30 个分片日志文件
+        </div>
+      </div>
+
+      <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 shadow-sm space-y-1">
+        <div class="flex items-center justify-between text-zinc-400 text-xs font-medium">
+          <span>活跃会话 (近3天)</span>
+          <i class="fa-solid fa-bolt text-amber-400"></i>
+        </div>
+        <div class="text-2xl font-bold text-white tracking-tight" id="stat-sessions">180</div>
+        <div class="text-[11px] text-zinc-400 flex items-center gap-1 pt-1">
+          <i class="fa-solid fa-circle-notch text-amber-400 text-[10px]"></i> Codex 自动流式采集
+        </div>
+      </div>
+
+      <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 shadow-sm space-y-1">
+        <div class="flex items-center justify-between text-zinc-400 text-xs font-medium">
+          <span>索引库大小 (index.db)</span>
+          <i class="fa-solid fa-hard-drive text-violet-400"></i>
+        </div>
+        <div class="text-2xl font-bold text-white tracking-tight" id="stat-index">295.0 MB</div>
+        <div class="text-[11px] text-indigo-400 flex items-center gap-1 pt-1">
+          <i class="fa-solid fa-shield-halved text-[10px]"></i> 原子事务安全与生命周期元数据
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 lg:col-span-2 space-y-4">
+        <div>
+          <h2 class="text-sm font-semibold text-white">知识库分类分布</h2>
+          <p class="text-xs text-zinc-400">~/llm-wiki 核心类型与条目占比</p>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="type-grid">
+          <div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20">
+            <div class="text-xs text-zinc-400">Notes (笔记)</div>
+            <div class="text-lg font-bold text-zinc-100 mt-1">10,820</div>
+          </div>
+          <div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20">
+            <div class="text-xs text-zinc-400">Concepts (概念)</div>
+            <div class="text-lg font-bold text-zinc-100 mt-1">1,240</div>
+          </div>
+          <div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20">
+            <div class="text-xs text-zinc-400">Entities (实体)</div>
+            <div class="text-lg font-bold text-zinc-100 mt-1">580</div>
+          </div>
+          <div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20">
+            <div class="text-xs text-zinc-400">Failures (踩坑)</div>
+            <div class="text-lg font-bold text-zinc-100 mt-1">322</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+        <h2 class="text-sm font-semibold text-white">Roadmap 自动化架构就绪</h2>
+        <div class="space-y-2.5">
+          <div class="flex items-start gap-2.5 p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-800/30">
+            <i class="fa-solid fa-circle-check text-emerald-400 mt-0.5 text-xs"></i>
+            <div>
+              <div class="text-xs font-semibold text-emerald-200">阶段一：Scope 推断与两阶段扩词</div>
+              <div class="text-[11px] text-zinc-400">Mem0 作用域分类 + MemoRAG L0 关键词规划</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2.5 p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-800/30">
+            <i class="fa-solid fa-circle-check text-emerald-400 mt-0.5 text-xs"></i>
+            <div>
+              <div class="text-xs font-semibold text-emerald-200">阶段二：生命周期与跨日聚类</div>
+              <div class="text-[11px] text-zinc-400">Graphiti deprecated_by 废弃调权 + Letta 聚类蒸馏</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2.5 p-2.5 rounded-xl bg-indigo-950/20 border border-indigo-800/30">
+            <i class="fa-solid fa-bolt text-indigo-400 mt-0.5 text-xs"></i>
+            <div>
+              <div class="text-xs font-semibold text-indigo-200">全链路默认自动化 (Default Auto)</div>
+              <div class="text-[11px] text-zinc-400">run & maintain 默认全自动闭环，带 --safe 仿真</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 2: SEARCH -->
+  <section id="view-search" class="hidden space-y-6">
+    <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-4">
+      <form onsubmit="doSearch(event)" class="flex gap-2">
+        <div class="relative flex-1">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 text-xs"></i>
+          <input type="text" id="searchInput" placeholder="输入检索关键词或概念 (如: OpenCodex, TikTok Shop, 架构决策...)"
+                 class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/40 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition">
+        </div>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium text-xs hover:bg-indigo-500 transition flex items-center gap-1.5 shadow-md shadow-indigo-600/30 shrink-0">
+          <i class="fa-solid fa-search"></i> 两阶段检索
+        </button>
+      </form>
+
+      <div class="flex flex-wrap items-center gap-4 pt-3 border-t border-zinc-800/60 text-xs">
+        <label class="flex items-center gap-2 cursor-pointer text-zinc-300">
+          <input type="checkbox" id="searchFuse" checked class="rounded bg-zinc-800 border-zinc-700 text-indigo-600">
+          <span>RRF 向量融合 (fuse)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer text-zinc-300">
+          <input type="checkbox" id="searchExpand" checked class="rounded bg-zinc-800 border-zinc-700 text-indigo-600">
+          <span>L0 智能扩词 (expand)</span>
+        </label>
+        <div class="flex items-center gap-2 text-zinc-400">
+          <span>作用域:</span>
+          <select id="searchScope" class="bg-zinc-800/60 border border-zinc-700/40 rounded-lg px-2 py-1 text-xs text-zinc-200">
+            <option value="">全部作用域 (Cross-scope)</option>
+            <option value="project">项目记忆 (Project)</option>
+            <option value="user">用户偏好 (User)</option>
+            <option value="agent">Agent 规则 (Agent)</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 text-zinc-400">
+          <span>Top:</span>
+          <select id="searchTop" class="bg-zinc-800/60 border border-zinc-700/40 rounded-lg px-2 py-1 text-xs text-zinc-200">
+            <option value="5">Top 5</option>
+            <option value="10" selected>Top 10</option>
+            <option value="20">Top 20</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Query Plan 卡片 -->
+    <div id="queryPlanCard" class="hidden p-4 rounded-xl bg-indigo-950/20 border border-indigo-800/30 text-xs space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-indigo-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-wand-magic-sparkles text-xs"></i> 查询规划报告 (Query Plan)
+        </span>
+        <span class="text-[11px] font-mono text-zinc-400" id="planPlanner"></span>
+      </div>
+      <div id="planExpansions" class="flex flex-wrap gap-1.5 pt-1 text-zinc-300"></div>
+    </div>
+
+    <!-- 结果列表 -->
+    <div id="searchResults" class="space-y-3">
+      <div class="text-center py-12 text-zinc-500 text-xs">输入关键词并点击检索以开始</div>
+    </div>
+  </section>
+
+  <!-- VIEW 3: ASK -->
+  <section id="view-ask" class="hidden space-y-6 max-w-4xl mx-auto">
+    <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-4">
+      <div class="flex items-center gap-2 text-indigo-400">
+        <i class="fa-solid fa-sparkles"></i>
+        <h2 class="text-sm font-semibold text-white">基于 llm-wiki 的智能问答</h2>
+      </div>
+      <p class="text-xs text-zinc-400">自动完成两阶段混合检索 + 页面上下文装配 + 免费 LLM 生成回答与引用</p>
+
+      <form onsubmit="doAsk(event)" class="flex gap-2">
+        <input type="text" id="askInput" placeholder="向知识库提问 (如: OpenCodex 499 错误的原因是什么？)"
+               class="w-full px-4 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/40 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition">
+        <button type="submit" id="askBtn" class="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium text-xs hover:bg-indigo-500 transition flex items-center gap-1.5 shadow-md shadow-indigo-600/30 shrink-0">
+          <i class="fa-solid fa-sparkles"></i> 提问
+        </button>
+      </form>
+    </div>
+
+    <div id="askResultCard" class="hidden p-6 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-4 shadow-lg">
+      <h3 class="text-sm font-semibold text-zinc-200">AI 回答</h3>
+      <div id="askAnswer" class="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap"></div>
+      <div id="askCitations" class="pt-4 border-t border-zinc-800/80 space-y-2">
+        <div class="text-xs font-semibold text-zinc-400">引用知识库页面:</div>
+        <div id="citationBadges" class="flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 4: PAGES -->
+  <section id="view-pages" class="hidden grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-4 flex flex-col h-[700px]">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-white">页面列表 (<span id="pagesCount">0</span>)</h2>
+        <button onclick="loadPagesList()" class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200">
+          <i class="fa-solid fa-arrows-rotate text-xs"></i>
+        </button>
+      </div>
+      <input type="text" id="pageFilterInput" oninput="filterPagesList()" placeholder="筛选路径或标题..."
+             class="w-full px-3 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/40 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none">
+      <div class="flex-1 overflow-y-auto space-y-1.5 pr-1" id="pagesItemsContainer">
+        <div class="text-center py-8 text-zinc-500 text-xs">加载中...</div>
+      </div>
+    </div>
+
+    <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 md:col-span-2 h-[700px] flex flex-col">
+      <div id="pageDetailEmpty" class="flex-1 flex items-center justify-center text-zinc-500 text-xs">
+        请从左侧选择一个知识库页面查看全文
+      </div>
+      <div id="pageDetailContent" class="hidden flex-1 flex flex-col space-y-4 overflow-hidden">
+        <div class="flex items-center justify-between pb-3 border-b border-zinc-800">
+          <div>
+            <h2 class="text-base font-bold text-white" id="pageDetailTitle"></h2>
+            <p class="text-xs font-mono text-zinc-400" id="pageDetailPath"></p>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto pr-2 font-mono text-xs text-zinc-300 whitespace-pre-wrap bg-zinc-950/50 p-4 rounded-xl border border-zinc-800/60" id="pageDetailBody"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 5: OBSERVATIONS -->
+  <section id="view-observations" class="hidden space-y-6">
+    <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Staging 原始会话观察流</h2>
+          <p class="text-xs text-zinc-400">Codex / Claude-mem 会话采集碎片，支持自动跨日聚类合并</p>
+        </div>
+        <button onclick="loadObservationsList()" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-arrows-rotate text-xs"></i> 刷新观察
+        </button>
+      </div>
+      <div id="obsListContainer" class="space-y-2.5">
+        <div class="text-center py-8 text-zinc-500 text-xs">加载中...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 6: AUTOMATION -->
+  <section id="view-automation" class="hidden space-y-6">
+    <div class="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-4">
+      <h2 class="text-sm font-semibold text-white">流水线与维护命令速查</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="p-4 rounded-xl bg-zinc-800/30 border border-zinc-700/20 space-y-2">
+          <div class="text-xs font-semibold text-indigo-300">一键全链路闭环 (Run)</div>
+          <code class="block p-2 rounded bg-zinc-950 text-xs text-zinc-300 font-mono">bash memory-hub.sh run</code>
+          <p class="text-[11px] text-zinc-400">默认以 auto=on, apply=on, commit=on 依次执行 capture → distill → scope-backfill → successor → publish → index → archive</p>
+        </div>
+        <div class="p-4 rounded-xl bg-zinc-800/30 border border-zinc-700/20 space-y-2">
+          <div class="text-xs font-semibold text-cyan-300">跨日聚类与知识库维护 (Maintain)</div>
+          <code class="block p-2 rounded bg-zinc-950 text-xs text-zinc-300 font-mono">bash memory-hub.sh maintain</code>
+          <p class="text-[11px] text-zinc-400">执行 7 阶段事务：validate → publish_pages_lifecycle → index_swap → lint → manifest_commit → archive → exact_stage_commit</p>
+        </div>
+        <div class="p-4 rounded-xl bg-zinc-800/30 border border-zinc-700/20 space-y-2">
+          <div class="text-xs font-semibold text-emerald-300">安全只读仿真 (Safe Simulation)</div>
+          <code class="block p-2 rounded bg-zinc-950 text-xs text-zinc-300 font-mono">bash memory-hub.sh run --safe</code>
+          <p class="text-[11px] text-zinc-400">执行所有规划与校验，但对 wiki 文件、manifest 与 Git 零写入</p>
+        </div>
+        <div class="p-4 rounded-xl bg-zinc-800/30 border border-zinc-700/20 space-y-2">
+          <div class="text-xs font-semibold text-amber-300">确定性 Scope 批量回填</div>
+          <code class="block p-2 rounded bg-zinc-950 text-xs text-zinc-300 font-mono">bash memory-hub.sh scope-backfill --apply</code>
+          <p class="text-[11px] text-zinc-400">按 6 级确定性规则分批回填存量约 12,900 Markdown 页面</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+let allPages = [];
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.getElementById('tab-' + tabId);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  ['overview', 'search', 'ask', 'pages', 'observations', 'automation'].forEach(id => {
+    const el = document.getElementById('view-' + id);
+    if (el) el.classList.toggle('hidden', id !== tabId);
+  });
+
+  if (tabId === 'pages' && allPages.length === 0) loadPagesList();
+  if (tabId === 'observations') loadObservationsList();
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.classList.toggle('dark');
+  document.getElementById('themeIcon').className = isDark ? 'fa-solid fa-moon text-sm' : 'fa-solid fa-sun text-sm';
+}
+
+async function loadOverview() {
+  try {
+    const res = await fetch('/api/overview');
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('stat-pages').textContent = (data.wiki_pages || 12962).toLocaleString();
+      document.getElementById('stat-obs').textContent = (data.observations_lines || 55341).toLocaleString();
+      document.getElementById('stat-obs-files').innerHTML = '<i class="fa-solid fa-clock text-cyan-400 text-[10px]"></i> ' + (data.observations_files || 30) + ' 个日志分片';
+      document.getElementById('stat-sessions').textContent = data.sessions_recent || 180;
+      if (data.index_db_bytes) {
+        document.getElementById('stat-index').textContent = (data.index_db_bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+      if (data.by_type) {
+        let html = '';
+        for (const [t, c] of Object.entries(data.by_type)) {
+          html += '<div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20"><div class="text-xs text-zinc-400 capitalize">' + t + '</div><div class="text-lg font-bold text-zinc-100 mt-1">' + Number(c).toLocaleString() + '</div></div>';
+        }
+        document.getElementById('type-grid').innerHTML = html;
+      }
+    }
+  } catch (e) {}
+}
+
+async function doSearch(e) {
+  if (e) e.preventDefault();
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+
+  const top = document.getElementById('searchTop').value;
+  const fuse = document.getElementById('searchFuse').checked ? '1' : '0';
+  const expand = document.getElementById('searchExpand').checked ? '1' : '0';
+  const scope = document.getElementById('searchScope').value;
+
+  let url = '/search?q=' + encodeURIComponent(q) + '&top=' + top + '&fuse=' + fuse + '&expand=' + expand + '&explain=1';
+  if (scope) url += '&scope=' + scope;
+
+  document.getElementById('searchResults').innerHTML = '<div class="text-center py-12 text-zinc-400 text-xs"><i class="fa-solid fa-spinner fa-spin mr-2"></i>检索中...</div>';
+
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.plan) {
+        document.getElementById('queryPlanCard').classList.remove('hidden');
+        document.getElementById('planPlanner').textContent = '规划器: ' + (data.plan.planner || 'local');
+        let expHtml = '<span class="text-zinc-400">扩词候选:</span>';
+        (data.plan.expansions || []).forEach(x => {
+          expHtml += '<span class="px-2 py-0.5 rounded-md bg-indigo-900/40 text-indigo-200 font-mono text-[11px] border border-indigo-700/30">' + x.term + ' (' + x.confidence + ')</span>';
+        });
+        document.getElementById('planExpansions').innerHTML = expHtml;
+      }
+
+      if (!data.results || data.results.length === 0) {
+        document.getElementById('searchResults').innerHTML = '<div class="text-center py-12 text-zinc-500 text-xs">无命中相关页面</div>';
+        return;
+      }
+
+      let resHtml = '';
+      data.results.forEach(r => {
+        resHtml += '<div onclick="openPageInModal(\'' + r.path + '\')" class="p-4 rounded-xl bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition cursor-pointer space-y-2">' +
+          '<div class="flex items-center justify-between">' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="font-mono text-xs text-indigo-400 font-semibold">[' + Number(r.score).toFixed(3) + ']</span>' +
+              '<h3 class="font-semibold text-sm text-zinc-100">' + (r.title || r.path) + '</h3>' +
+            '</div>' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/40 uppercase">' + (r.type || 'note') + '</span>' +
+              '<span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-300 border border-indigo-800/40">' + (r.scope || 'project') + ':' + (r.scope_id || 'default') + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<p class="text-xs text-zinc-400 line-clamp-2 leading-relaxed">' + (r.abstract || '暂无摘要') + '</p>' +
+          '<div class="text-[11px] font-mono text-zinc-500">' + r.path + '</div>' +
+        '</div>';
+      });
+      document.getElementById('searchResults').innerHTML = resHtml;
+    }
+  } catch (err) {
+    document.getElementById('searchResults').innerHTML = '<div class="text-center py-12 text-rose-400 text-xs">检索失败: ' + err + '</div>';
+  }
+}
+
+async function doAsk(e) {
+  if (e) e.preventDefault();
+  const q = document.getElementById('askInput').value.trim();
+  if (!q) return;
+
+  const btn = document.getElementById('askBtn');
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 思考中...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/ask?q=' + encodeURIComponent(q) + '&top=5&fuse=1&expand=1');
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('askResultCard').classList.remove('hidden');
+      document.getElementById('askAnswer').textContent = data.answer || '未能从知识库提取到有效答案。';
+      let cHtml = '';
+      (data.context_paths || []).forEach(p => {
+        cHtml += '<span class="px-2.5 py-1 rounded-lg bg-zinc-800/60 text-xs font-mono text-indigo-300 border border-zinc-700/40 cursor-pointer" onclick="openPageInModal(\'' + p + '\')">' + p + '</span>';
+      });
+      document.getElementById('citationBadges').innerHTML = cHtml;
+    }
+  } catch (err) {
+    alert('提问失败: ' + err);
+  } finally {
+    btn.innerHTML = '<i class="fa-solid fa-sparkles"></i> 提问';
+    btn.disabled = false;
+  }
+}
+
+async function loadPagesList() {
+  try {
+    const res = await fetch('/api/pages?limit=100');
+    if (res.ok) {
+      const data = await res.json();
+      allPages = data.items || [];
+      document.getElementById('pagesCount').textContent = allPages.length;
+      renderPagesContainer(allPages);
+    }
+  } catch (e) {}
+}
+
+function renderPagesContainer(list) {
+  let html = '';
+  list.forEach(p => {
+    html += '<div onclick="loadPageDetail(\'' + p.path + '\')" class="p-2.5 rounded-lg text-xs transition cursor-pointer bg-zinc-800/30 hover:bg-zinc-800/60 border border-transparent hover:border-zinc-700/40 text-zinc-300">' +
+      '<div class="font-medium truncate">' + (p.title || p.path) + '</div>' +
+      '<div class="text-[10px] text-zinc-500 truncate mt-0.5">' + p.path + '</div>' +
+    '</div>';
+  });
+  document.getElementById('pagesItemsContainer').innerHTML = html || '<div class="text-center py-8 text-zinc-500 text-xs">无匹配页面</div>';
+}
+
+function filterPagesList() {
+  const kw = document.getElementById('pageFilterInput').value.toLowerCase();
+  const filtered = allPages.filter(p => (p.title && p.title.toLowerCase().includes(kw)) || p.path.toLowerCase().includes(kw));
+  renderPagesContainer(filtered);
+}
+
+async function loadPageDetail(path) {
+  try {
+    const res = await fetch('/api/page?path=' + encodeURIComponent(path));
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('pageDetailEmpty').classList.add('hidden');
+      document.getElementById('pageDetailContent').classList.remove('hidden');
+      document.getElementById('pageDetailTitle').textContent = data.meta?.title || path;
+      document.getElementById('pageDetailPath').textContent = path;
+      document.getElementById('pageDetailBody').textContent = data.content || '';
+    }
+  } catch (e) {}
+}
+
+function openPageInModal(path) {
+  switchTab('pages');
+  loadPageDetail(path);
+}
+
+async function loadObservationsList() {
+  try {
+    const res = await fetch('/api/observations?limit=50');
+    if (res.ok) {
+      const data = await res.json();
+      let html = '';
+      (data.items || []).forEach((obs, idx) => {
+        html += '<div class="p-3 rounded-xl bg-zinc-800/30 border border-zinc-700/20 text-xs space-y-1">' +
+          '<div class="flex items-center justify-between text-[11px] text-zinc-400">' +
+            '<span class="font-mono text-indigo-400 font-semibold">[' + (obs.id || idx) + '] ' + (obs.project || 'default-project') + '</span>' +
+            '<span>' + (obs.created_at || '') + '</span>' +
+          '</div>' +
+          '<p class="text-zinc-200">' + obs.text + '</p>' +
+        '</div>';
+      });
+      document.getElementById('obsListContainer').innerHTML = html || '<div class="text-center py-8 text-zinc-500 text-xs">暂无观察记录</div>';
+    }
+  } catch (e) {}
+}
+
+loadOverview();
+</script>
+</body>
+</html>

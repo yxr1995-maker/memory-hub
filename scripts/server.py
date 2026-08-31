@@ -753,16 +753,21 @@ class Handler(BaseHTTPRequestHandler):
 
         if u.path == "/health":
             return self._json({"status": "ok"})
-        if u.path == "/":
-            return self._json({
-                "name": "memory-hub REST",
-                "管理面板预览": "http://127.0.0.1:8902/dev-harness.html",
-                "端点": ["/health", "/status", "/search?q=&top=", "/ask?q=", "/metrics",
-                        "/api/vitals", "/api/overview", "/api/pages?type=&tag=&q=&offset=&limit=",
-                        "/api/page?path= (GET/POST/DELETE)", "/api/tags",
-                        "/api/observations?q=&project=&offset=&limit=",
-                        "/api/calls?kind=&offset=&limit=", "/api/graph?include_atoms="],
-            })
+        if u.path in ("/", "/dashboard", "/ui"):
+            accept = self.headers.get("Accept", "")
+            if first("format") == "json" or ("application/json" in accept and "text/html" not in accept):
+                return self._json({
+                    "name": "memory-hub REST",
+                    "ui": "http://127.0.0.1:8787/",
+                    "endpoints": ["/health", "/status", "/search?q=&top=", "/ask?q=", "/metrics",
+                                  "/api/vitals", "/api/overview", "/api/pages", "/api/page", "/api/tags",
+                                  "/api/observations"],
+                })
+            dash_path = os.path.join(HUB, "ui", "dashboard.html")
+            if os.path.isfile(dash_path):
+                with open(dash_path, "r", encoding="utf-8") as f:
+                    return self._text(f.read(), 200, "text/html; charset=utf-8")
+            return self._json({"status": "ok"})
         if u.path == "/status":
             return self._text(*run_script("status.sh", timeout=20))
         if u.path == "/search":
@@ -936,11 +941,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
-    def _text(self, body: str, code: int = 200):
-        data = body.encode()
+    def _text(self, body: str, code: int = 200, ctype: str = "text/plain; charset=utf-8"):
+        data = body.encode("utf-8")
         self.send_response(code)
         self._cors()
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
