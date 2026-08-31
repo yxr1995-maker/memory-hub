@@ -1,0 +1,49 @@
+{
+  "scenario": "roadmap_plan_final_fix_retry_direct_verification",
+  "assigned_document": "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md",
+  "commands": [
+    {
+      "argv": ["rg", "-n", "Global execution order and Task 8/9 order patterns", "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"],
+      "exit_code": 0,
+      "observable": "actual order is 1-7,9,8,10-14; Task 8 requires Task 9; Task 9 consumes only Task 1 context/path helpers"
+    },
+    {
+      "argv": ["rg", "-n", "old reverse Task 9 to Task 8 dependency patterns", "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"],
+      "exit_code": 1,
+      "observable": "reverse_dependency=ABSENT"
+    },
+    {
+      "argv": ["rg", "-o", "-F", "StageOutcome.ok(checkpoint_owned=True)", "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"],
+      "exit_code": 0,
+      "observable": "checkpoint_owned_outcomes=2"
+    },
+    {
+      "argv": ["git", "diff", "--check"],
+      "exit_code": 0,
+      "observable": "git_diff_check=PASS"
+    },
+    {
+      "argv": ["python3", "inline static assertions", "docs/superpowers/plans/2026-08-31-roadmap-full-auto.md"],
+      "exit_code": 0,
+      "observable": "plan_static_assertions=PASS; task_heading_count=14"
+    }
+  ],
+  "criteria": {
+    "actual_execution_order_1_7_9_8_10_14": true,
+    "task_8_requires_completed_task_9": true,
+    "task_9_has_no_task_8_dependency": true,
+    "checkpoint_owners_are_unique": true,
+    "generic_loop_skips_owned_checkpoints": true,
+    "nonduplicate_checkpoint_assertion_present": true,
+    "lifecycle_tail_assertion_present": true,
+    "fourteen_task_titles": true,
+    "git_diff_check": true,
+    "static_assertions": true
+  },
+  "artifacts": {
+    "verbatim_command_output": ".omo/evidence/roadmap-plan-final-fix-retry/direct-verification.log",
+    "verbatim_command_output_sha256": "430d9a22963c7a453cb094288ca298b3ac706d9f8292a98e7c34e0e636d71f6d",
+    "plan_sha256": "bf51b35a7814feaabf7799766550ffbc9fdcdb6b4a6e94e50d8db7b66aa04aaf"
+  },
+  "result": "PASS"
+}

@@ -1,0 +1,27 @@
+verification_started_utc=2026-08-30T18:23:03Z
+worktree=/Users/earan/Documents/memory-hub/.worktrees/roadmap-full-auto
+CHECK=plan_static_validation
+plan=/Users/earan/Documents/memory-hub/.worktrees/roadmap-full-auto/docs/superpowers/plans/2026-08-31-roadmap-full-auto.md
+lines=1248
+tasks=14
+task_file_counts=[(1, 9), (2, 5), (3, 4), (4, 2), (5, 3), (6, 5), (7, 6), (8, 3), (9, 2), (10, 2), (11, 4), (12, 7), (13, 6), (14, 3)]
+unique_create_paths=32
+spec_rows=11 sections=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+code_fences=118 balanced=True
+forbidden_placeholder_hits=0
+interface_checks=5 shared_dataclasses=4
+result=PASS
+EXIT_plan_static_validation=0
+EXIT_git_diff_check=0
+plan_sha256=3175e27904b3bc1f744f031596119161a32010f31c1c7848b602af9d52697882
+spec_worktree_sha256=92cfece0317b8047bc5f213f407789e84bbe166dc5aafc7b5c71e17321ecba9d
+spec_commit_893b688_sha256=92cfece0317b8047bc5f213f407789e84bbe166dc5aafc7b5c71e17321ecba9d
+EXIT_spec_identity=0
+git_status_begin
+?? docs/superpowers/plans/
+git_status_end
+EXIT_scope_only_plan=0
+EXIT_plan_nonempty=0
+OVERALL=PASS
+verification_finished_utc=2026-08-30T18:23:03Z
+RAW_CAPTURE_EXIT=0

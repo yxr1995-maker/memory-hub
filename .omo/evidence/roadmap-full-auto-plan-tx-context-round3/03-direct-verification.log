@@ -1,0 +1,53 @@
+scenario=direct_round3_document_verification
+workdir=/Users/earan/Documents/memory-hub/.worktrees/roadmap-full-auto
+timestamp_utc=2026-08-31T06:51:27Z
+
+[1] forbidden residual scan
+command=rg -n 'ctx\.journal|fail_after|LifecycleJournal\(|OperationJournal\(' docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md docs/superpowers/plans/2026-08-31-roadmap-full-auto.md
+observable=no forbidden residual
+exit=0
+
+[2] declared transactional signatures and hook points
+command=rg -n 'def begin_transaction|def prepare_successor_pages|def finalize_successor_after_index|def publish_successor_once|def commit_manifest|def run_pipeline|def maintain_pipeline|FailureHook = Callable|prepare.rename_new|index.before_swap|finalize.verify_pair|manifest.before_replace|rollback_transaction' docs/superpowers/plans/2026-08-31-roadmap-full-auto.md
+143:FailureHook = Callable[[str], None]
+157:`OperationContext` is immutable and contains only operation identity/options/roots. `TransactionContext` is created once at the CLI/entry boundary by `begin_transaction(operation, baseline, failure_hook=None)`, owns the one root `OperationJournal`, and is passed explicitly to every transactional function in Tasks 8, 10, and 11. A lifecycle prepared value may reference `tx.journal`, but it never creates a lifecycle-local root journal. `FailureHook` is `Callable[[str], None]`, is injected only by tests, and receives stable named points such as `prepare.rename_new`, `index.before_swap`, `finalize.verify_pair`, and `manifest.before_replace`; production uses `None`.
+757:@pytest.mark.parametrize("point", ["prepare.rename_new", "index.before_swap", "finalize.verify_pair"])
+816:def prepare_successor_pages(plan, tx):
+825:    tx.inject("prepare.rename_new"); tx.journal.rename_new(); tx.journal.checkpoint("NEW_RENAMED")
+829:def finalize_successor_after_index(prepared, tx):
+832:    tx.inject("finalize.verify_pair")
+837:def publish_successor_once(plan, tx, rebuild_index):
+840:        tx.inject("index.before_swap")
+845:        rollback_transaction(tx); raise
+848:Task 11 owns the `maintain` caller: its `publish_pages_lifecycle` stage invokes only `prepare_successor_pages(plan, tx)`, and its sole `index_swap` stage invokes `atomic_rebuild_index(tx)` once, registers the index before-image in `tx.journal`, records `INDEX_SWAPPED`, then calls `finalize_successor_after_index(prepared, tx)`. The standalone `publish_successor_once()` wrapper is only for manual publish; it is strictly `prepare → one index swap → finalize`, using the same caller-provided `tx`. Recovery is exclusively `rollback_transaction(tx)`: it walks the root journal in reverse to restore manifest (if written), index, then pages/frontmatter; it unstages only operation-owned paths and never touches user baseline staged paths. It records rollback results and rejects overwrite when predecessor already points to a third page.
+869:- Produces: `AutomationLock.acquire(data: Path, operation: OperationContext, now_monotonic: Callable[[], float]) -> AutomationLock`, `begin_transaction(operation: OperationContext, baseline: GitBaseline, failure_hook: FailureHook | None = None) -> TransactionContext`, `stage_exact(repo: Path, tx: TransactionContext, whitelist: Sequence[OwnedPath]) -> StageReport`, `commit_exact(repo: Path, tx: TransactionContext, stage: StageReport) -> CommitReport`, and `rollback_transaction(tx: TransactionContext) -> RollbackReport`. `begin_transaction()` is the sole constructor of the one root `OperationJournal` for an operation.
+914:def begin_transaction(operation, baseline, failure_hook=None):
+952:`commit_exact()` is unreachable unless `stage_exact()` returned `exact`; `preexisting_staged`, hash mismatch, or cached mismatch performs no commit. A preexisting staged baseline is therefore a safe failure before any index mutation, staging, or commit. Commit only verified operation paths, using `chore(wiki): memory-hub maintain <operation-id>`; report `not-a-repository` without failing publication. `rollback_transaction(tx)` replays the sole root journal strictly in reverse mutation order (manifest if written, index, then pages/frontmatter), then unstages only journal-owned paths; it must preserve all baseline staged paths byte-for-byte.
+999:    tx = cluster_fixture.transaction(failure_hook=raise_at("manifest.before_replace"))
+1000:    with pytest.raises(InjectedFailure, match="manifest.before_replace"):
+1029:The merge page frontmatter includes active status, project scope, cluster key, member count, first/last UTC time, method, hashed ids, uncertainty label, L0 abstract, and `valid_at`. `commit_manifest()` is called only after the orchestrator checkpoints `PAGES_LIFECYCLE_PUBLISHED`, `INDEX_SWAPPED`, and `LINT_PASSED`; it requires `INDEX_SWAPPED` and `LINT_PASSED`, writes a mode-0600 temporary JSON file, `fsync`s file and parent, then renames and checkpoints `MANIFEST_COMMITTED`. It registers its before-image in the same transaction journal before `manifest.before_replace`; any later archive/stage failure uses the one inverse rollback to restore the unchanged pre-operation manifest, index, and pages/frontmatter.
+1032:def commit_manifest(path, update, tx):
+1038:    tx.inject("manifest.before_replace")
+1107:@pytest.mark.parametrize("point", ["prepare.rename_new", "index.before_swap", "finalize.verify_pair", "manifest.before_replace"])
+1140:`run_pipeline(tx, stages)` executes capture → distill → scope backfill → autolink → successor page preparation → one index swap → lifecycle finalization → archive → exact commit. The only `MAINTAIN_ORDER` is `validate → publish_pages_lifecycle → index_swap → lint → atomic_manifest_commit → archive → exact_stage_commit`; `validate` contains baseline/planning checks but makes no controlled mutation. `publish_pages_lifecycle` calls only `prepare_successor_pages(plan, tx)` and leaves `tx.journal` `PREPARED`. `index_swap` is the sole call to `atomic_rebuild_index(tx)`: after that one successful swap it records `INDEX_SWAPPED` on the same root journal and calls `finalize_successor_after_index(prepared, tx)`; it must not call any other swap. Safe mode calls each stage's `plan()`/`validate()` only. Every successful stage records exactly one of `VALIDATED`、`PAGES_LIFECYCLE_PUBLISHED`、`INDEX_SWAPPED`、`LINT_PASSED`、`MANIFEST_COMMITTED`、`ARCHIVED`、`STAGE_COMMITTED` in `operation-<id>.json`; a non-zero stage calls `rollback_transaction(tx)` and never advances. The one root journal restores operation before-images for pages/frontmatter/index/manifest in reverse order, so a failed manifest/archive/stage cannot leave a changed manifest or alter user preexisting staged paths. Print `mode=<mode> apply=<true|false> operation_id=<id>` before stage output.
+1154:def maintain_pipeline(tx, stages):
+1168:                rollback_transaction(tx); return tx.journal.fail(name, outcome)
+1172:def run_pipeline(tx, stages):
+1174:    return execute_run_order(tx, stages, on_failure=rollback_transaction)
+1177:`StageRunner.index_swap_once_and_finalize(tx)` registers the index before-image in `tx.journal`, invokes `tx.inject("index.before_swap")`, invokes `atomic_rebuild_index(tx)` exactly once, checkpoints the same root journal as `INDEX_SWAPPED`, invokes `tx.inject("index.after_swap")`, calls `finalize_successor_after_index(prepared, tx)`, and returns its combined outcome. It never delegates index rebuilding to lifecycle prepare/finalize. Any error from prepare/index/finalize/manifest/archive/stage returns to the pipeline's one `rollback_transaction(tx)` path.
+1472:- Type/interface consistency check: inline Python compared the declared and implementation signatures for `infer_scope`, `rank_results`, `MemoryService.search`, `MemoryService.ask_context`, `begin_transaction`, `prepare_successor_pages`, `finalize_successor_after_index`, `commit_manifest`, `run_pipeline`, and `maintain_pipeline`; required one `FailureHook = Callable[[str], None]`, one `TransactionContext`, one `OperationJournal.prepare()` root allocation, explicit `tx` signatures in Tasks 8/10/11, and absence of every legacy implicit-journal, local-lifecycle-journal, local-root-constructor, and obsolete fault-parameter form; exit 0, `interface_consistency=PASS`.
+exit=0
+
+[3] executable structural assertions
+command=python3 inline structural assertions
+observable=all structural assertions passed
+exit=0
+
+[4] whitespace and assigned-range validation
+command=git diff --check -- docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md docs/superpowers/plans/2026-08-31-roadmap-full-auto.md
+exit=0
+command=git status --short
+ M docs/superpowers/specs/2026-08-31-roadmap-full-auto-design.md
+?? docs/superpowers/plans/
+
+result=PASS

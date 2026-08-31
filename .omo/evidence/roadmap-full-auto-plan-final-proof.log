@@ -1,0 +1,31 @@
+proof_started_utc=2026-08-30T18:25:38Z
+CHECK=ulw_status
+{
+  "ok": false,
+  "error": {
+    "code": "ULW_LOOP_PLAN_MISSING",
+    "message": "No ulw-loop plan found at .omo/ulw-loop/01a0539b-164a-7741-8983-d2a1bf9c6a9d/goals.json. Run `omo ulw-loop create-goals ...` first."
+  }
+}
+EXIT_ulw_status=1
+JUDGMENT_ulw=ULW_LOOP_PLAN_MISSING means no currentAttemptDir; fallback is cwd/.omo/evidence
+EXIT_raw_nonempty=0
+EXIT_raw_integrity=0
+raw_sha256=985a269013b8bae7c86b6abf2f67bce140048691026ce7389316ace56d4460d3
+EXIT_plan_nonempty=0
+task_count=14
+spec_row_count=11
+placeholder_count=0
+EXIT_count_contract=0
+EXIT_git_diff_check=0
+plan_sha256=3175e27904b3bc1f744f031596119161a32010f31c1c7848b602af9d52697882
+spec_worktree_sha256=92cfece0317b8047bc5f213f407789e84bbe166dc5aafc7b5c71e17321ecba9d
+spec_commit_sha256=92cfece0317b8047bc5f213f407789e84bbe166dc5aafc7b5c71e17321ecba9d
+EXIT_spec_identity=0
+git_status_begin
+?? docs/superpowers/plans/
+git_status_end
+EXIT_scope_check=0
+OVERALL=PASS
+proof_finished_utc=2026-08-30T18:25:38Z
+PROOF_CAPTURE_EXIT=0

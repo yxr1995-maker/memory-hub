@@ -1,0 +1,14 @@
+PASS  safe placeholders (9 categories): token_hits=0
+PASS  leaked tokens (10 categories): token_hits=10
+PASS  status and verify agree on safe placeholders
+PASS  status and verify agree on leaked credentials
+PASS  status and verify ignore raw, archive, and drafts/memoryhub
+PASS  status and verify reject leaked credentials in other drafts
+PASS  real wiki: token_hits=0
+PASS  --format json produces valid JSON
+PASS  --json alias produces valid JSON
+PASS  credential value not in stdout
+PASS  verify.sh exits 0 on real wiki
+PASS  status.sh exits 0 on real wiki
+== 全部通过 ==
+EXIT:0
