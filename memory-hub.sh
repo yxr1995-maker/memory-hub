@@ -25,6 +25,8 @@ usage() {
   echo "  verify              静态漂移校验（toml/hook/MCP/DB，CI 用）"
   echo "  metrics             输出 Prometheus 文本指标"
   echo "  serve [--port N]    启动 REST 查询服务（/search /ask /status /metrics）"
+  echo "  codex doctor --json  Codex 自动记忆诊断（configure 管理开关）"
+  echo "  memory-worker --once 后台记忆整理、发布与索引恢复"
   echo "  watch               定时采集循环（每 60 秒）"
   echo "  maintain [--safe|--no-auto] [--apply] 跨日聚类与知识库维护 (default: auto=on, apply=on, commit=on)"
   echo "  run [--safe|--no-auto] [--apply] 全链路自动化闭环 (default: auto=on, apply=on, commit=on)"
@@ -59,6 +61,7 @@ case "$CMD" in
   verify) exec "$HUB_DIR/scripts/verify.sh" "$@" ;;
   metrics) exec "$HUB_DIR/scripts/metrics.sh" "$@" ;;
   serve) exec python3 "$HUB_DIR/scripts/server.py" "$@" ;;
+  codex|memory-worker) exec python3 "$HUB_DIR/scripts/codex_integration.py" "$CMD" "$@" ;;
   watch)
     echo "== memory-hub watch: 每 60 秒增量采集 + 蒸馏 (Ctrl-C 退出) =="
     while true; do

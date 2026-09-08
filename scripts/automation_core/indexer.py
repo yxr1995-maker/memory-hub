@@ -62,6 +62,7 @@ class IndexedPage:
     last_verified: str
     valid_at: str
     invalid_at: str
+    deprecated_by: str = ""
 
 
 def detect_index_schema(db: Path) -> IndexSchema:
@@ -83,6 +84,9 @@ def load_page_records(db: Path, paths: Sequence[str] | None = None) -> dict[str,
         return {}
     schema = detect_index_schema(db)
     with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as con:
+        successors = {}
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lifecycle'").fetchone():
+            successors = dict(con.execute("SELECT path, deprecated_by FROM lifecycle"))
         if schema.supports_scope and schema.supports_validity:
             sql = """
                 SELECT p.path, p.title, p.type, p.tags, p.abstract, p.content,
@@ -101,7 +105,8 @@ def load_page_records(db: Path, paths: Sequence[str] | None = None) -> dict[str,
                     path=r[0], title=r[1], type=r[2], tags=r[3], abstract=r[4], content=r[5],
                     scope=r[6], scope_id=r[7], scope_confidence=r[8], status=r[9],
                     updated=r[10] or "", last_verified=r[11] or "",
-                    valid_at=r[12] or "", invalid_at=r[13] or ""
+                    valid_at=r[12] or "", invalid_at=r[13] or "",
+                    deprecated_by=successors.get(r[0], "")
                 )
                 for r in rows
             }
@@ -141,8 +146,10 @@ def build_index(
     con = sqlite3.connect(destination)
     try:
         con.executescript(PAGES_DDL + "\n" + META_DDL + "\n" + VEC_DDL)
+        con.execute("CREATE TABLE lifecycle(path TEXT PRIMARY KEY, deprecated_by TEXT NOT NULL)")
         page_rows = []
         meta_rows = []
+        lifecycle_rows = []
         excluded = {"_legacy-para", "_archive"} | (set() if include_raw else {"raw"})
 
         paths = sorted(wiki.rglob("*.md"), key=lambda p: p.relative_to(wiki).as_posix())
@@ -177,8 +184,10 @@ def build_index(
             scope_id = normalize_id(str(fm.get("scope_id") or "default-project"), "default-project")
             scope_confidence = str(fm.get("scope_confidence") or "low")
             status = str(fm.get("status") or "active")
-            if status not in _LEGAL_STATUSES:
+            if status == "fresh":
                 status = "active"
+            elif status not in _LEGAL_STATUSES:
+                status = "candidate"
 
             updated = str(fm.get("updated") or "")
             last_verified = str(fm.get("last_verified") or "")
@@ -188,6 +197,8 @@ def build_index(
             page_rows.append((rel_s, title, ptype, tags, abstract, body,
                               scope, scope_id, scope_confidence, status))
             meta_rows.append((rel_s, updated, last_verified, valid_at, invalid_at))
+            if fm.get("deprecated_by"):
+                lifecycle_rows.append((rel_s, str(fm["deprecated_by"])))
 
             if failure_after and len(page_rows) >= failure_after:
                 raise RuntimeError("injected index failure")
@@ -195,6 +206,7 @@ def build_index(
         with con:
             con.executemany("INSERT INTO pages VALUES(?,?,?,?,?,?,?,?,?,?)", page_rows)
             con.executemany("INSERT INTO meta VALUES(?,?,?,?,?)", meta_rows)
+            con.executemany("INSERT INTO lifecycle VALUES(?,?)", lifecycle_rows)
             if source_db and source_db.is_file():
                 con.execute("ATTACH DATABASE ? AS old", (str(source_db.resolve()),))
                 if con.execute("SELECT 1 FROM old.sqlite_master WHERE type='table' AND name='vec'").fetchone():
@@ -274,4 +286,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

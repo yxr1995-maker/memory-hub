@@ -150,7 +150,7 @@ class OperationJournal:
         self.baseline = baseline
         self.state: str = "INIT"
         self.checkpoints: list[str] = []
-        self.before_images: dict[str, Path] = {}
+        self.before_images: dict[str, Path | None] = {}
         self.rollback_order: tuple[str, ...] = ("manifest", "index", "pages")
         self.registered_paths: list[str] = []
         self.tx_dir = operation.data_path / "transactions" / operation.operation_id
@@ -178,13 +178,20 @@ class OperationJournal:
         before_dir = self.tx_dir / "before-images"
         before_dir.mkdir(parents=True, exist_ok=True)
         for path in paths:
-            rel = str(path)
+            rel = str(path.absolute())
+            if rel in self.before_images:
+                continue
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise ValueError(f"Cannot snapshot non-regular file: {path}")
             if path.is_file():
-                dest = before_dir / f"{path.name}.before"
+                dest = before_dir / f"{hashlib.sha256(rel.encode()).hexdigest()}.before"
                 shutil.copy2(str(path), str(dest))
                 os.chmod(str(dest), 0o600)
                 self.before_images[rel] = dest
                 self._append_record({"event": "before_image", "path": rel, "dest": str(dest)})
+            else:
+                self.before_images[rel] = None
+                self._append_record({"event": "before_image", "path": rel, "dest": None})
 
     def register_lifecycle(self, plan: Any) -> None:
         self._append_record({"event": "register_lifecycle", "plan": str(plan)})
@@ -305,10 +312,15 @@ def commit_exact(
 
 def rollback_transaction(tx: TransactionContext) -> RollbackReport:
     restored = []
+    if "STAGE_COMMITTED" in tx.journal.checkpoints:
+        return RollbackReport(success=True, restored_paths=())
     # Reverse restoration: manifest -> index -> pages
     for orig_path, before_path in reversed(list(tx.journal.before_images.items())):
         target = Path(orig_path)
-        if before_path.is_file():
+        if before_path is None:
+            target.unlink(missing_ok=True)
+            restored.append(orig_path)
+        elif before_path.is_file():
             shutil.copy2(str(before_path), str(target))
             restored.append(orig_path)
     return RollbackReport(success=True, restored_paths=tuple(restored))
