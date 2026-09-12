@@ -1,0 +1,558 @@
+{
+  "protocol": "transfer-candidate-20260910",
+  "scope": "Synthetic transfer candidate for the existing paired_host executor; authored locally before this batch outputs. No hidden-training or statistical-generalization claim.",
+  "split": {
+    "authored_at": "2026-09-10",
+    "historical_scenario_date": "2026-08-20",
+    "task_scenario_date": "2026-09-10",
+    "dates_are_synthetic": true,
+    "family_split": "source_family differs from target_family; independent review still required",
+    "development_suites": [
+      "development.jsonl",
+      "paired-host-suite.json"
+    ]
+  },
+  "episodes": [
+    {
+      "key": "ownership",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "录音项目的临时产物与人工注释共存",
+        "narrative": "合成旧项目中，批量清理产物时连带删除人工注释。清单只记录本次工具创建的中间文件。",
+        "explicit_reason": "文件位于同一目录不代表归工具所有。清理应以所有权清单划定范围，保留清单之外的人工内容。",
+        "conditions": {
+          "task_kind": "engineering"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/ownership"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "publication",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "海报渲染中断保留上一份可用产物",
+        "narrative": "合成渲染器直接打开正式输出写入，遇到中断后只剩半份文件。后续演练分别检查中断和成功两条路径。",
+        "explicit_reason": "候选内容先在自有临时文件完整生成，再替换正式产物；失败应保留上一份完整输出，正常完成则要发布新版。",
+        "conditions": {
+          "task_kind": "engineering"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/publication"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "exit",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "视频转码任务日志与进程状态矛盾",
+        "narrative": "合成转码器先打印SUCCESS，退出码却是7；另一控制任务退出码0。只查日志时失败任务被错误计为成功。",
+        "explicit_reason": "成功文字只是进程输出的一部分。先核对实际退出状态，再检查需要的产物；也不能把成功控制任务一并判为失败。",
+        "conditions": {
+          "task_kind": "engineering"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/exit"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "roundtrip",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "字幕导出需保留换行引号和多语言内容",
+        "narrative": "合成字幕含逗号、引号、换行与中文；手工拼接字段分隔符后，导入行数和字段发生变化。",
+        "explicit_reason": "导出格式应使用能转义分隔符的序列化器，并把文件重新解析后逐字段比较；有文件不等于可恢复原数据。",
+        "conditions": {
+          "task_kind": "engineering"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/roundtrip"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "evening",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "睡前读书的轻松邀请",
+        "narrative": "旧稿把陪伴变成家长义务；合成评审希望画面能让人愿意靠近，不使用亏欠或责任压力。",
+        "explicit_reason": "用可感知的小动作和场景表达陪伴；不把一次选择变成道德判断。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/evening"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "details",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "旅行收纳说明避免空泛赞美",
+        "narrative": "合成旧稿反复说让生活更好，却没展示已提供的双层结构。改稿围绕出门时收放的小动作。",
+        "explicit_reason": "让已知结构服务于具体使用动作；没有测试证据时不添加性能指标。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/details"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "distance",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "展览邀请的克制表达",
+        "narrative": "合成旧稿使用宏大口号，评审改为留出读者自由选择的空间。",
+        "explicit_reason": "保持轻盈和留白；邀请靠可见细节，不替观众规定情绪。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/distance"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "revision",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "旧宣传稿的修改理由需重新核对",
+        "narrative": "一次合成评审选择了大声促销稿；随后评审补充，应根据本轮简报改为平实说明。",
+        "explicit_reason": "旧判断曾把语气强烈当作唯一优点。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/revision"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      },
+      "revisions": [
+        {
+          "patch": {
+            "explicit_reason": "修订后的合成评审：平实地说明已知功能，以本轮简报为准；旧稿的夸张语气不应自动继承。"
+          },
+          "reason": "合成评审纠正语气适用范围"
+        }
+      ]
+    },
+    {
+      "key": "temporary",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "离线临时文件可丢弃的约定",
+        "narrative": "合成演练的输出全由工具创建且没有用户数据。",
+        "explicit_reason": "只有确认数据可丢弃且全部归当前操作所有，才适用清空流程。",
+        "conditions": {
+          "task_kind": "engineering"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/temporary"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    },
+    {
+      "key": "withdrawn",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "冰岬庆典的热闹语气",
+        "narrative": "合成庆典曾用热闹语气；后来该理解被撤回。",
+        "explicit_reason": "热闹风格只针对当次庆典，不代表其他活动。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/withdrawn"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      },
+      "revoke": true
+    },
+    {
+      "key": "choice",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "source_kind": "synthetic_fixture",
+        "goal": "一次无解释的绿色配色选择",
+        "narrative": "合成评审只选中了绿色版本，没有提供理由。",
+        "explicit_reason": "不知道选择原因，不把单次结果当作永久偏好。",
+        "conditions": {
+          "task_kind": "creative"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "transfer-history/choice"
+          }
+        ],
+        "artifacts": [],
+        "outcome": {
+          "status": "observed",
+          "verification": "unknown"
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "transfer-manifest",
+      "query": "临时产物 所有权 清单 人工内容",
+      "task_text": "素材构建器完成后要清理退役产物。owned.json只列owned.tmp，同目录manual.md由人维护。完成清理并保留人工文件。动作：prune_manifest（仅删清单所列产物）、prune_all（清空目录内容）、skip（不清理）。",
+      "kind": "engineering_action",
+      "source_family": "audio-transcription",
+      "target_family": "asset-build",
+      "action_case": "manifest",
+      "conditions": {
+        "task_kind": "engineering"
+      },
+      "rubric": {
+        "postconditions": "由固定动作fixture回读产物、退出状态或记录，并核验无关文件保留。"
+      }
+    },
+    {
+      "task_id": "transfer-staged",
+      "query": "生成中断 临时文件 完整输出 替换",
+      "task_text": "离线数据目录要发布新版索引。正式文件有完整旧版；生成器可能写到一半中断。中断时保留旧版，完整生成时让新版生效。动作：stage_then_replace（临时生成完再替换）、direct_write（直接写正式文件）、skip（不发布）。",
+      "kind": "engineering_action",
+      "source_family": "poster-render",
+      "target_family": "catalog-export",
+      "action_case": "staged",
+      "conditions": {
+        "task_kind": "engineering"
+      },
+      "rubric": {
+        "postconditions": "由固定动作fixture回读产物、退出状态或记录，并核验无关文件保留。"
+      }
+    },
+    {
+      "task_id": "transfer-exit_status",
+      "query": "日志 成功 退出状态 控制",
+      "task_text": "迁移预检有两个固定进程：一个打印SUCCESS后退出7，一个正常退出0。为报告选择状态判定策略。动作：check_exit（读取进程退出码）、trust_log（看到SUCCESS就认成功）、always_fail（总是判失败）。",
+      "kind": "engineering_action",
+      "source_family": "video-transcode",
+      "target_family": "migration-preflight",
+      "action_case": "exit_status",
+      "conditions": {
+        "task_kind": "engineering"
+      },
+      "rubric": {
+        "postconditions": "由固定动作fixture回读产物、退出状态或记录，并核验无关文件保留。"
+      }
+    },
+    {
+      "task_id": "transfer-csv_export",
+      "query": "导出 序列化 换行 引号 回读",
+      "task_text": "把合成联系记录导出CSV。字段含逗号、双引号、换行和Unicode；重新导入后字段及记录必须与来源完全一致。动作：csv_writer（标准CSV写入）、join_commas（逗号拼接）、skip（不导出）。",
+      "kind": "engineering_action",
+      "source_family": "subtitle-export",
+      "target_family": "contact-export",
+      "action_case": "csv_export",
+      "conditions": {
+        "task_kind": "engineering"
+      },
+      "rubric": {
+        "postconditions": "由固定动作fixture回读产物、退出状态或记录，并核验无关文件保留。"
+      }
+    },
+    {
+      "task_id": "transfer-evening",
+      "query": "下班晚间 陪伴 场景 轻松邀请",
+      "task_text": "为折叠野餐垫写40—70字傍晚公园场景文案。已知只有可折叠、附提带；语气温暖自然，让人想约伴出门，不制造愧疚，不复制历史成品。",
+      "kind": "creative_copy",
+      "source_family": "bedtime-reading",
+      "target_family": "picnic-mat",
+      "conditions": {
+        "task_kind": "creative"
+      },
+      "rubric": {
+        "facts": [
+          "可折叠",
+          "附提带"
+        ],
+        "intent": "温暖邀请；通过公园的小动作表达陪伴，不添加防水、耐磨等承诺。",
+        "min_length": 40,
+        "max_length": 70,
+        "length_unit": "unicode characters including punctuation",
+        "score_axes": [
+          "intent_fit",
+          "useful_novelty",
+          "edit_burden",
+          "wrong_preference_inheritance"
+        ]
+      }
+    },
+    {
+      "task_id": "transfer-details",
+      "query": "具体使用 动作 结构 避免空泛",
+      "task_text": "为桌面理线夹写30—60字文案。已知只有可开合夹口、背面胶贴；写整理工作桌的片刻感受，不承诺不留痕或承重。",
+      "kind": "creative_copy",
+      "source_family": "travel-organizer",
+      "target_family": "cable-clip",
+      "conditions": {
+        "task_kind": "creative"
+      },
+      "rubric": {
+        "facts": [
+          "可开合夹口",
+          "背面胶贴"
+        ],
+        "intent": "结构和收放动作相连，简洁具体。",
+        "min_length": 30,
+        "max_length": 60,
+        "length_unit": "unicode characters including punctuation",
+        "score_axes": [
+          "intent_fit",
+          "useful_novelty",
+          "edit_burden",
+          "wrong_preference_inheritance"
+        ]
+      }
+    },
+    {
+      "task_id": "transfer-distance",
+      "query": "邀请 克制 留白 细节",
+      "task_text": "为社区种子交换活动写35—65字邀请。已知周日下午、社区庭院、自带种子可参加；语气轻盈，不承诺收获或名额，不使用催促话术。",
+      "kind": "creative_copy",
+      "source_family": "exhibition-invite",
+      "target_family": "seed-exchange",
+      "conditions": {
+        "task_kind": "creative"
+      },
+      "rubric": {
+        "facts": [
+          "周日下午",
+          "社区庭院",
+          "自带种子可参加"
+        ],
+        "intent": "读者可以自主决定；具体场景不替人规定感受。",
+        "min_length": 35,
+        "max_length": 65,
+        "length_unit": "unicode characters including punctuation",
+        "score_axes": [
+          "intent_fit",
+          "useful_novelty",
+          "edit_burden",
+          "wrong_preference_inheritance"
+        ]
+      }
+    },
+    {
+      "task_id": "transfer-revision",
+      "query": "当前简报 平实 说明 修改理由",
+      "task_text": "为纸质习惯记录本写30—60字文案。已知只有无日期页、每天一个空白格；本轮语气平实，突出从任意一天开始记录，不承诺改变人生。",
+      "kind": "creative_copy",
+      "source_family": "sale-poster",
+      "target_family": "habit-notebook",
+      "conditions": {
+        "task_kind": "creative"
+      },
+      "rubric": {
+        "facts": [
+          "无日期页",
+          "每天一个空白格"
+        ],
+        "intent": "遵循修订后的平实表达，当前简报优先。",
+        "min_length": 30,
+        "max_length": 60,
+        "length_unit": "unicode characters including punctuation",
+        "score_axes": [
+          "intent_fit",
+          "useful_novelty",
+          "edit_burden",
+          "wrong_preference_inheritance"
+        ]
+      }
+    },
+    {
+      "task_id": "transfer-negative-current",
+      "query": "旧临时目录 可丢弃 约定",
+      "task_text": "旧材料说工具输出可全部丢弃，但当前导出目录已交由编辑使用并有手工批注。决定采用当前保留约束(use_current)还是沿用清空旧约定(reuse)。",
+      "kind": "negative_transfer",
+      "source_family": "temporary-build",
+      "target_family": "editorial-delivery",
+      "allowed_decisions": [
+        "use_current",
+        "reuse"
+      ],
+      "rubric": {
+        "expected_decision": "use_current",
+        "reason_check": "忠实于当前条件、撤回状态和来源证据；不编造执行或永久偏好。"
+      }
+    },
+    {
+      "task_id": "transfer-negative-withdrawal",
+      "query": "冰岬庆典 热闹语气",
+      "task_text": "要写新的社区说明，但此前冰岬庆典的热闹风格经历已撤回。决定不再援引撤回内容(abstain)或继续援引(reuse)。",
+      "kind": "negative_transfer",
+      "source_family": "winter-celebration",
+      "target_family": "community-notice",
+      "allowed_decisions": [
+        "abstain",
+        "reuse"
+      ],
+      "rubric": {
+        "expected_decision": "abstain",
+        "reason_check": "忠实于当前条件、撤回状态和来源证据；不编造执行或永久偏好。"
+      }
+    },
+    {
+      "task_id": "transfer-negative-preference",
+      "query": "绿色配色 一次选择 原因",
+      "task_text": "为新播客封面决定是否把一次无理由选择当作永久绿色偏好。决定证据不足不推断(abstain)或确认为永久偏好(adopt)。",
+      "kind": "negative_transfer",
+      "source_family": "packaging-color",
+      "target_family": "podcast-cover",
+      "allowed_decisions": [
+        "abstain",
+        "adopt"
+      ],
+      "rubric": {
+        "expected_decision": "abstain",
+        "reason_check": "忠实于当前条件、撤回状态和来源证据；不编造执行或永久偏好。"
+      }
+    },
+    {
+      "task_id": "transfer-negative-none",
+      "query": "深海声学仪器校准历史",
+      "task_text": "当前没有深海声学仪器的校准记录。判断是否存在可引用的经验来源；无来源时承认不足(abstain)，或把无关经历当依据(reuse)。不作真实仪器操作建议。",
+      "kind": "negative_transfer",
+      "source_family": "none",
+      "target_family": "acoustic-fixture",
+      "allowed_decisions": [
+        "abstain",
+        "reuse"
+      ],
+      "rubric": {
+        "expected_decision": "abstain",
+        "reason_check": "忠实于当前条件、撤回状态和来源证据；不编造执行或永久偏好。"
+      }
+    }
+  ]
+}

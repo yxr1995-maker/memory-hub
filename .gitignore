@@ -50,3 +50,4 @@ docs/evidence/
 !evaluation/experience_v1/m4_caption.jsonl
 !evaluation/experience_v1/m4_utility.py
 !evaluation/experience_v1/m4_utility.jsonl
+!evaluation/experience_v1/transfer-suite.json

@@ -69,7 +69,11 @@ normalize_capture_output() {
   rm -f "$input_file"
 }
 
-CLEAN_JQ='gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[^>]*>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "")'
+# Backslash-free on purpose: bash 5 collapses doubled backslashes inside the
+# \${var//pat/repl} substitution that fills this placeholder, turning the whitespace
+# class into an invalid jq escape and making capture emit zero observations on
+# Linux. [[:space:]] keeps the identical meaning on bash 3.2 and bash 5.x.
+CLEAN_JQ='gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("<[^>]*>"; "") | gsub("<[a-zA-Z0-9 ._-]+>[^<>]*</[a-zA-Z0-9 ._-]+>"; "") | gsub("[[:space:]]+"; " ") | sub("^ +"; "") | sub(" +$"; "")'
 
 # ============ workbuddy (~/.workbuddy/projects) ============
 if [[ "$SOURCE" == "workbuddy" ]]; then
@@ -467,3 +471,5 @@ if [[ "$WATCH" == 1 ]]; then
 else
   run_capture
 fi
+# \${var//pat/repl} substitution that fills this placeholder, turning the whitespace
+# ${var//pat/repl} substitution that fills this placeholder, turning the whitespace
