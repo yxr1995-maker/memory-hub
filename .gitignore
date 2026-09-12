@@ -46,3 +46,5 @@ evaluation/experience_v1/*
 docs/evidence/
 !evaluation/experience_v1/m4_semantic.py
 !evaluation/experience_v1/m4_paraphrase.jsonl
+!evaluation/experience_v1/m4_multimodal.py
+!evaluation/experience_v1/m4_caption.jsonl

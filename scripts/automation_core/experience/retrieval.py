@@ -17,7 +17,7 @@ def candidates(c,ctx,task):
     query_terms=dumps(terms)
     collections=dumps(ctx.allowed_collections)
     scores={}
-    for group in ('goal','reason','condition'):
+    for group in ('goal','reason','condition','artifact'):
         rows=c.execute('''SELECT k.event_id,count(*) AS score
             FROM experience_keys k JOIN experience_events e ON k.event_id=e.event_id
             JOIN experience_versions v ON v.event_id=e.event_id AND v.revision=e.revision

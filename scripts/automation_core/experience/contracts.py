@@ -105,9 +105,11 @@ def validate_payload(payload):
     require(type(artifacts) is list and len(artifacts)<=20)
     seen=set()
     for a in artifacts:
-        require(type(a) is dict and {'artifact_id','media_type','location','checksum','license'}<=a.keys() and not a.keys()-{'artifact_id','media_type','location','checksum','license','segment'})
+        require(type(a) is dict and {'artifact_id','media_type','location','checksum','license'}<=a.keys() and not a.keys()-{'artifact_id','media_type','location','checksum','license','segment','caption'})
         for key in ('artifact_id','media_type','location','checksum','license'):
             text(a[key])
+        # Optional author-supplied caption: bounded, non-empty text only.
+        text(a.get('caption'),optional=True,limit=1000)
         require(a['artifact_id'] not in seen);seen.add(a['artifact_id'])
         require(a['media_type'] in ('text','image','video','other'))
         require(a['license'] in ('read','reference'))

@@ -66,12 +66,23 @@ def _unpack(blob):
 
 
 def _document(payload) -> str:
-    return ' '.join([
+    parts=[
         str(payload['goal']),
         str(payload.get('explicit_reason') or ''),
         str(payload['narrative']),
         json.dumps(payload['conditions'], ensure_ascii=False, sort_keys=True),
-    ])
+    ]
+    artifacts=_artifact_document(payload)
+    if artifacts:parts.append(artifacts)
+    return ' '.join(parts)
+
+
+def _artifact_document(payload) -> str:
+    """Media context for the derived vector; still no pixel decoding."""
+    parts=[]
+    for a in payload.get('artifacts',[]):
+        parts.extend((str(a['media_type']),str(a.get('segment') or ''),str(a.get('caption') or '')))
+    return ' '.join(part for part in parts if part)
 
 
 def index_vectors(c, event_id, revision, payload) -> bool:
@@ -117,4 +128,3 @@ def semantic_candidates(c, ctx, task, limit=20):
         scored.append((dot / (query_norm * norm), row['event_id']))
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [event_id for _, event_id in scored[:limit]]
-
