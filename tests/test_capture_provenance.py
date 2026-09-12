@@ -223,6 +223,64 @@ def test_parse_page_rejects_malformed_or_unsafe_frontmatter(
         raise AssertionError(f"malformed frontmatter was accepted: case {index}")
 
 
+def test_parse_page_accepts_yaml_block_scalars(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "atom.md",
+        b"---\ntitle: T\nsource_quote: >-\n  \xe5\x90\x88\xe4\xbc\x99\xe4\xbc\x81\xe4\xb8\x9a\xe6\x8a\x95\xe8\xb5\x84\xe9\x80\x80\xe5\x87\xba\xef\xbc\x9a\xe9\x80\x80\xe5\x87\xba\xef\xbc\x9b\n  \xe7\xac\xac\xe4\xba\x8c\xe8\xa1\x8c\xe3\x80\x82\nvirality_score: 80\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["source_quote"] == "合伙企业投资退出：退出； 第二行。"
+    assert page.frontmatter["virality_score"] == "80"
+
+
+def test_parse_page_literal_block_scalar_and_patch_preserves_it(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "literal.md",
+        b"---\ntitle: T\nbody_text: |\n  line one\n  line two\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["body_text"] == "line one\nline two"
+    rendered = patch_frontmatter(page, {"scope": "project"})
+    assert b"  line one\n  line two\n" in rendered
+    assert b"scope: project" in rendered
+
+
+def test_parse_page_accepts_unindented_sequences(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "unindented.md",
+        b"---\ntitle: T\ntags:\n- memory\n- self-evolution\nstatus: fresh\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["tags"] == ["memory", "self-evolution"]
+    assert page.frontmatter["status"] == "fresh"
+    assert page.tags == ["memory", "self-evolution"]
+
+
+def test_parse_page_block_scalar_inside_sequence_item(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "sequence-block.md",
+        b"---\ntitle: T\nsources:\n  - raw/a.md\n  - >-\n    raw/b.md\n  - raw/c.md\nupdated: '2026-01-01'\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["sources"] == ["raw/a.md", "raw/b.md", "raw/c.md"]
+    assert page.frontmatter["updated"] == "2026-01-01"
+
+
+def test_parse_page_block_scalar_keeps_dash_prefixed_content(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "dash-content.md",
+        b"---\ntitle: T\nsource_quote: >-\n  - gbrain closure: commit then sync\n  Already up to date.\nvirality_score: 70\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["source_quote"] == "- gbrain closure: commit then sync Already up to date."
+    assert page.frontmatter["virality_score"] == "70"
+
+
 def test_parse_page_accepts_an_empty_frontmatter_block(tmp_path: Path) -> None:
     page = parse_page(_write_page(tmp_path, "empty.md", b"---\n---\nbody\n"))
     assert page.frontmatter == {}
