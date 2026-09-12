@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Repair corrupted automation.toml files and sync DB layer."""
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -9,6 +10,26 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".codex" / "sqlite" / "codex-dev.db"
 AUTO_DIR = Path.home() / ".codex" / "automations"
+
+HUB_ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = Path(os.environ.get("WIKI_PATH") or (Path.home() / "llm-wiki"))
+AUTHOR_ROOT = "/Users/earan/Documents/memory-hub"
+AUTHOR_WIKI = "/Users/earan/llm-wiki"
+
+
+def localize(value):
+    """Rewrite the author's legacy checkout paths to this machine's real ones.
+
+    Identity on the author's own checkout, portable everywhere else; a plain
+    string, list or dict is handled so prompts, cwds and TOML text keep working.
+    """
+    if isinstance(value, str):
+        return value.replace(AUTHOR_ROOT, str(HUB_ROOT)).replace(AUTHOR_WIKI, str(WIKI_ROOT))
+    if isinstance(value, dict):
+        return {key: localize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [localize(item) for item in value]
+    return value
 
 AUTOMATIONS = ["wiki-distill", "wiki-review", "llm-wiki-curation", "gbrain"]
 
@@ -204,6 +225,7 @@ def main():
     backup_db()
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
+    hub_data = localize(MEMORY_HUB_DATA)
 
     changed_files = []
     changed_db = []
@@ -214,7 +236,7 @@ def main():
             print(f"missing file: {path}")
             continue
         data = repair_toml(auto_id)
-        new_text = render_toml(data)
+        new_text = render_toml(localize(data))
         old_text = path.read_text(encoding="utf-8")
         if new_text != old_text:
             path.write_text(new_text, encoding="utf-8")
@@ -225,7 +247,7 @@ def main():
 
         db = get_db_automation(cur, auto_id)
         if db and (db["prompt"] != data["prompt"] or db["name"] != data["name"] or db["rrule"] != data["rrule"]):
-            update_or_create(cur, data)
+            update_or_create(cur, localize(data))
             changed_db.append(auto_id)
         else:
             print(f"DB unchanged: {auto_id}")
@@ -234,7 +256,7 @@ def main():
     mh_path = AUTO_DIR / "memory-hub" / "automation.toml"
     if not mh_path.exists():
         mh_path.parent.mkdir(parents=True, exist_ok=True)
-    new_text = render_toml(MEMORY_HUB_DATA)
+    new_text = render_toml(localize(MEMORY_HUB_DATA))
     old_text = mh_path.read_text(encoding="utf-8") if mh_path.exists() else ""
     if new_text != old_text:
         mh_path.write_text(new_text, encoding="utf-8")
@@ -244,12 +266,12 @@ def main():
         print("file already clean: memory-hub")
 
     if not get_db_automation(cur, "memory-hub"):
-        update_or_create(cur, MEMORY_HUB_DATA)
+        update_or_create(cur, hub_data)
         changed_db.append("memory-hub")
     else:
         db = get_db_automation(cur, "memory-hub")
-        if db["prompt"] != MEMORY_HUB_DATA["prompt"] or db["rrule"] != MEMORY_HUB_DATA["rrule"]:
-            update_or_create(cur, MEMORY_HUB_DATA)
+        if db["prompt"] != hub_data["prompt"] or db["rrule"] != hub_data["rrule"]:
+            update_or_create(cur, hub_data)
             changed_db.append("memory-hub")
         else:
             print("DB unchanged: memory-hub")

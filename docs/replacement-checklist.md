@@ -35,7 +35,7 @@
 
 ```bash
 # 第 0 步：并行验证（不动现有插件，先对比一周）
-cd /Users/earan/Documents/memory-hub
+cd "$(git rev-parse --show-toplevel)"   # memory-hub 检出目录
 ./memory-hub.sh index          # 建 FTS5 索引（3663 页）
 ./memory-hub.sh search "关键词" # 与 gbrain query 对比结果
 ./memory-hub.sh ask "问题"      # 与 gbrain ask 对比回答

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fix automation prompts by replacing gbrain sync with memory-hub.sh index."""
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -9,6 +10,25 @@ from pathlib import Path
 DB_PATH = Path.home() / ".codex" / "sqlite" / "codex-dev.db"
 BACKUP_DB = "/tmp/codex-dev-before-memoryhub-1786439386.db"
 AUTO_DIR = Path.home() / ".codex" / "automations"
+HUB_ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = Path(os.environ.get("WIKI_PATH") or (Path.home() / "llm-wiki"))
+AUTHOR_ROOT = "/Users/earan/Documents/memory-hub"
+AUTHOR_WIKI = "/Users/earan/llm-wiki"
+
+
+def localize(value):
+    """Rewrite the author's legacy checkout paths to this machine's real ones.
+
+    Identity on the author's own checkout, portable everywhere else; a plain
+    string, list or dict is handled so prompts, cwds and TOML text keep working.
+    """
+    if isinstance(value, str):
+        return value.replace(AUTHOR_ROOT, str(HUB_ROOT)).replace(AUTHOR_WIKI, str(WIKI_ROOT))
+    if isinstance(value, dict):
+        return {key: localize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [localize(item) for item in value]
+    return value
 
 
 def now_ms() -> int:
@@ -79,6 +99,7 @@ def set_prompt(data: dict, prompt: str) -> dict:
 
 
 def update_db_and_file(data: dict):
+    data = localize(data)
     # Write file
     path = AUTO_DIR / data["id"] / "automation.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +124,7 @@ def update_db_and_file(data: dict):
 
 
 def create_db_and_file(data: dict):
+    data = localize(data)
     path = AUTO_DIR / data["id"] / "automation.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_toml(data), encoding="utf-8")

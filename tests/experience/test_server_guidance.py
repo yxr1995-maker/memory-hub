@@ -7,8 +7,11 @@ contract, so it is checked through the real server surface instead of
 importing the module for a private attribute.
 """
 import json
+from pathlib import Path
 
 from tests.experience.test_end_to_end import require_mcp_python
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_server_instructions_state_recall_data_carries_provenance(tmp_path):
@@ -27,9 +30,9 @@ asyncio.run(main())
 """
     environ = {
         **__import__('os').environ,
-        'PYTHONPATH': '/Users/earan/Documents/memory-hub',
+        'PYTHONPATH': str(ROOT),
         'MEMORY_HUB_DATA': str(tmp_path / 'uninitialized-default'),
-        'TEST_SERVER': '/Users/earan/Documents/memory-hub/mcp/server.py',
+        'TEST_SERVER': str(ROOT / 'mcp' / 'server.py'),
     }
     import subprocess
     r = subprocess.run(

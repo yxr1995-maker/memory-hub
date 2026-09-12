@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Sync Codex automation file layer (.toml) with SQLite DB layer."""
 import json
+import os
 import sqlite3
 import sys
 import tomllib
@@ -9,6 +10,26 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".codex" / "sqlite" / "codex-dev.db"
 AUTO_DIR = Path.home() / ".codex" / "automations"
+
+HUB_ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = Path(os.environ.get("WIKI_PATH") or (Path.home() / "llm-wiki"))
+AUTHOR_ROOT = "/Users/earan/Documents/memory-hub"
+AUTHOR_WIKI = "/Users/earan/llm-wiki"
+
+
+def localize(value):
+    """Rewrite the author's legacy checkout paths to this machine's real ones.
+
+    Identity on the author's own checkout, portable everywhere else; a plain
+    string, list or dict is handled so prompts, cwds and TOML text keep working.
+    """
+    if isinstance(value, str):
+        return value.replace(AUTHOR_ROOT, str(HUB_ROOT)).replace(AUTHOR_WIKI, str(WIKI_ROOT))
+    if isinstance(value, dict):
+        return {key: localize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [localize(item) for item in value]
+    return value
 
 
 def now_ms() -> int:
@@ -120,7 +141,7 @@ def main():
     memory_hub_toml = AUTO_DIR / "memory-hub" / "automation.toml"
     if not memory_hub_toml.exists():
         memory_hub_toml.parent.mkdir(parents=True, exist_ok=True)
-        memory_hub_toml.write_text(MEMORY_HUB_TOML, encoding="utf-8")
+        memory_hub_toml.write_text(localize(MEMORY_HUB_TOML), encoding="utf-8")
         print(f"created file: {memory_hub_toml}")
     data = parse_toml(memory_hub_toml)
     data["id"] = "memory-hub"

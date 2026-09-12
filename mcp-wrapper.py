@@ -5,10 +5,12 @@ import os
 
 # Add parent dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVER_PATH = os.path.join(HUB_DIR, "mcp", "server.py")
 
 # Rename conflicting module
 import importlib.util
-spec = importlib.util.spec_from_file_location("mcp_server_lib", "/Users/earan/Documents/memory-hub/mcp/server.py")
+spec = importlib.util.spec_from_file_location("mcp_server_lib", SERVER_PATH)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 

@@ -24,6 +24,8 @@
 
 ## 快速开始
 
+安装、卸载、配置、兼容矩阵与回退路径见 [分发与安装说明](docs/install.md)。
+
 ```bash
 ./memory-hub.sh run --safe       # 安全预览，不采集、不写知识库、不提交
 ./memory-hub.sh run              # 默认应用完整流水线并提交实际改动
@@ -38,7 +40,7 @@
 | `distill [--llm]` | 按 project 分组生成合规 wiki 页 → `staging/pages/`。frontmatter 含 `title/type/created/updated/abstract/tags/sources/confidence/contested/status/last_verified`；type 智能映射（决策→decision、失败→failure、对比→comparison、默认 concept）；正文 L0 摘要 + L1 概述 + L2 明细（>60 条自动分页）；AI 摘要标 ⚠️待核实；出链 `[[index]] [[log]]` + 同项目分页互链 |
 | `distill` F1 冲突检测 | wiki `drafts/memoryhub/` 已存在同 project 页时，新页标 `status: candidate` + `contested: true`，并生成 `reports/conflicts/<slug>.md` 对照报告；publish 跳过 candidate 页，绝不覆盖已存在页 |
 | `index [--with-raw]` | 把 ~/llm-wiki 索引进 SQLite FTS5（trigram 中文分词）→ `~/.memory-hub/index.db`（3663 页 ~3 分钟，全量重建） |
-| `eval [--top N]` | 自评测基准(F3+U2): 跑 `evaluation/golden.jsonl` 的 31 条「问题→预期页」对,算 hit@N 与 MRR,按 AML 四类 A/C/D/G 给出能力画像,写 `reports/eval-<date>.md` |
+| `eval [--top N]` | 自评测基准(F3+U2，`evaluation/golden.jsonl` 为本地私有基准、不随仓库分发，缺失时明确报错): 跑 `evaluation/golden.jsonl` 的 31 条「问题→预期页」对,算 hit@N 与 MRR,按 AML 四类 A/C/D/G 给出能力画像,写 `reports/eval-<date>.md` |
 | `archive [--keep N] [--apply]` | 归档已消费的观察文件(F4): `staging/observations-*.jsonl`(仅日期命名,不含 realtime/test) 除最新 N 份外全部移入 `staging/archive/`(可恢复,不 rm); 默认 dry-run; `run --apply` 成功后自动执行 |
 | `ask "问题" [--top N]` | 知识库问答（替代 gbrain ask）：FTS5 检索 + 免费模型生成（默认 sensenova/sensenova-6.8-flash-lite） |
 | `export [--project X] [--type Y] [--tier l0|l1|l2|full]` | 结构化分层导出知识库页面为 JSONL / JSON / 合并 Markdown 归档，支持 L0/L1/L2 上下文深度裁剪（详见 [分层架构说明](docs/architecture-tiered-context.md)） |
