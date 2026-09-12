@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Memory Hub — 个人 Agent 记忆库</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/dashboard.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -37,7 +37,7 @@
   <div class="flex items-center gap-3">
     <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/40 text-emerald-400 text-xs">
       <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-      <span class="text-[11px] font-medium">服务正常运行 (12,962 页已就绪)</span>
+      <span class="text-[11px] font-medium" id="serviceState">正在获取状态…</span>
     </div>
   </div>
 </header>
@@ -83,10 +83,10 @@
 
     <div class="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800/80 text-xs space-y-1 text-zinc-400">
       <div class="flex items-center justify-between">
-        <span class="text-zinc-300 font-medium">全自动记忆同步</span>
-        <span class="text-emerald-400 text-[10px]">开启</span>
+        <span class="text-zinc-300 font-medium">记忆流水线</span>
+        <span class="text-zinc-400 text-[10px]">以操作报告为准</span>
       </div>
-      <p class="text-[10px] text-zinc-500">每日自动采集对话 → 蒸馏总结 → 存入本地 Wiki</p>
+      <p class="text-[10px] text-zinc-500">采集对话 → 蒸馏总结 → 存入 Wiki</p>
     </div>
   </aside>
 
@@ -168,7 +168,7 @@
     <!-- 视图 4: 浏览全部知识库 (Wiki) -->
     <section id="view-wiki" class="hidden grid grid-cols-1 md:grid-cols-3 gap-6 h-[calc(100vh-8rem)]">
       <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col space-y-3 h-full">
-        <div class="font-semibold text-xs text-zinc-300">知识库页面 (<span id="wikiTotalCount">12,962</span>)</div>
+        <div class="font-semibold text-xs text-zinc-300">知识库页面 (<span id="wikiTotalCount">…</span>)</div>
         <input type="text" id="wikiFilterInput" oninput="filterWikiList()" placeholder="过滤标题/文件名..."
                class="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 focus:outline-none">
         <div class="flex-1 overflow-y-auto space-y-1" id="wikiItemsList">
@@ -215,23 +215,23 @@
       <div class="grid grid-cols-2 gap-4">
         <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
           <div class="text-xs text-zinc-400">知识库总页面数</div>
-          <div class="text-xl font-bold text-white" id="stat-p2">12,962 篇</div>
-          <div class="text-[11px] text-emerald-400">路径: ~/llm-wiki/</div>
+          <div class="text-xl font-bold text-white" id="stat-p2">未获取</div>
+          <div class="text-[11px] text-emerald-400">来源：当前服务配置的知识库</div>
         </div>
         <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
           <div class="text-xs text-zinc-400">全文与向量索引</div>
-          <div class="text-xl font-bold text-white" id="stat-db2">295 MB</div>
-          <div class="text-[11px] text-emerald-400">路径: ~/.memory-hub/index.db</div>
+          <div class="text-xl font-bold text-white" id="stat-db2">未获取</div>
+          <div class="text-[11px] text-emerald-400">索引更新：<span id="indexFreshness">未获取</span></div>
         </div>
         <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
           <div class="text-xs text-zinc-400">会话采集状态</div>
-          <div class="text-xl font-bold text-white">正常自动采集</div>
-          <div class="text-[11px] text-zinc-400">近3天活跃会话: 180 个文件</div>
+          <div class="text-xl font-bold text-white" id="operationState">未获取</div>
+          <div class="text-[11px] text-zinc-400" id="operationDetail">未获取</div>
         </div>
         <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
           <div class="text-xs text-zinc-400">REST API 端口</div>
-          <div class="text-xl font-bold text-white">127.0.0.1:8787</div>
-          <div class="text-[11px] text-emerald-400">HTTP 探针健康 OK</div>
+          <div class="text-xl font-bold text-white" id="apiAddress">未获取</div>
+          <div class="text-[11px] text-emerald-400"><span id="pendingConflicts">未获取</span></div>
         </div>
       </div>
     </section>
@@ -241,181 +241,128 @@
 
 <script>
 let wikiPagesCache = [];
-
+const byId = id => document.getElementById(id);
+function node(tag, text, css = '') {
+  const element = document.createElement(tag);
+  element.textContent = text == null ? '' : String(text);
+  element.className = css;
+  return element;
+}
+function message(id, text) { byId(id).replaceChildren(node('p', text, 'p-4 text-sm text-zinc-400')); }
+async function request(path) {
+  const response = await fetch(path, {signal: AbortSignal.timeout(60000)});
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  return response.json();
+}
+function pageButton(page) {
+  const button = node('button', '', 'w-full text-left p-4 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-indigo-500 space-y-2');
+  button.type = 'button';
+  button.append(node('div', page.title || page.path, 'font-semibold text-sm'),
+    node('p', page.abstract || '', 'text-xs text-zinc-400'),
+    node('div', page.path, 'text-xs text-indigo-300 font-mono'));
+  if (page.status) button.append(node('span', page.status, 'text-xs text-amber-300'));
+  button.addEventListener('click', () => openWikiDoc(page.path));
+  return button;
+}
 function switchView(id) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const btn = document.getElementById('nav-' + id);
-  if (btn) btn.classList.add('active');
-
-  ['search', 'ask', 'failures', 'wiki', 'recent', 'status'].forEach(v => {
-    const el = document.getElementById('view-' + v);
-    if (el) el.classList.toggle('hidden', v !== id);
-  });
-
+  byId('nav-' + id)?.classList.add('active');
+  ['search', 'ask', 'failures', 'wiki', 'recent', 'status'].forEach(view => byId('view-' + view)?.classList.toggle('hidden', view !== id));
   if (id === 'failures') loadFailures();
-  if (id === 'wiki' && wikiPagesCache.length === 0) loadWikiPages();
+  if (id === 'wiki' && !wikiPagesCache.length) loadWikiPages();
   if (id === 'recent') loadRecentObs();
+  if (id === 'status') loadStatus();
 }
-
-function setQuickSearch(term) {
-  document.getElementById('kwInput').value = term;
-  handleSearch();
-}
-
-async function handleSearch(e) {
-  if (e) e.preventDefault();
-  const q = document.getElementById('kwInput').value.trim();
-  if (!q) return;
-
-  const listEl = document.getElementById('searchList');
-  listEl.innerHTML = '<div class="text-center py-8 text-zinc-400 text-xs"><i class="fa-solid fa-spinner fa-spin mr-2"></i>正在智能检索...</div>';
-
+function setQuickSearch(term) { byId('kwInput').value = term; handleSearch(); }
+let searchGeneration = 0;
+async function handleSearch(event) {
+  event?.preventDefault();
+  const query = byId('kwInput').value.trim();
+  if (!query) return;
+  const generation = ++searchGeneration;
+  message('searchList', '正在检索…');
   try {
-    const res = await fetch('/search?q=' + encodeURIComponent(q) + '&top=10&fuse=1&expand=1');
-    if (res.ok) {
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) {
-        listEl.innerHTML = '<div class="text-center py-8 text-zinc-500 text-xs">没有找到相关记忆</div>';
-        return;
-      }
-
-      let html = '';
-      data.results.forEach(r => {
-        const title = r.title || r.path;
-        const abstract = r.abstract || '暂无详细摘要';
-        html += '<div onclick="openWikiDoc(\'' + r.path + '\')" class="p-4 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-indigo-600/50 transition cursor-pointer space-y-1.5">' +
-          '<div class="flex items-center justify-between">' +
-            '<span class="font-semibold text-sm text-zinc-100">' + title + '</span>' +
-            '<span class="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">' + (r.type || 'note') + '</span>' +
-          '</div>' +
-          '<p class="text-xs text-zinc-400 leading-relaxed line-clamp-2">' + abstract + '</p>' +
-          '<div class="text-[11px] font-mono text-zinc-500">' + r.path + '</div>' +
-        '</div>';
-      });
-      listEl.innerHTML = html;
-    }
-  } catch (err) {
-    listEl.innerHTML = '<div class="text-center py-8 text-rose-400 text-xs">检索异常: ' + err + '</div>';
-  }
+    const data = await request('/search?' + new URLSearchParams({q: query, top: 10, fuse: 1, expand: 1}));
+    if (generation !== searchGeneration) return;
+    if (!data.results?.length) return message('searchList', '没有找到相关记忆');
+    byId('searchList').replaceChildren(...data.results.map(pageButton));
+  } catch (error) { if (generation === searchGeneration) message('searchList', '检索失败：' + error.message); }
 }
-
-async function handleAsk(e) {
-  if (e) e.preventDefault();
-  const q = document.getElementById('askQInput').value.trim();
-  if (!q) return;
-
-  const btn = document.getElementById('askSubmitBtn');
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>思考中...';
-  btn.disabled = true;
-
+async function handleAsk(event) {
+  event?.preventDefault();
+  const query = byId('askQInput').value.trim();
+  if (!query) return;
+  const button = byId('askSubmitBtn');
+  button.disabled = true; button.textContent = '思考中…';
   try {
-    const res = await fetch('/ask?q=' + encodeURIComponent(q) + '&top=5&fuse=1&expand=1');
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById('askResultBox').classList.remove('hidden');
-      document.getElementById('askAnswerText').textContent = data.answer || '未能从知识库提取到有效答案。';
-
-      let sHtml = '';
-      (data.context_paths || []).forEach(p => {
-        sHtml += '<span onclick="openWikiDoc(\'' + p + '\')" class="px-2.5 py-1 rounded bg-zinc-900 text-indigo-300 text-xs font-mono border border-zinc-750 cursor-pointer hover:border-indigo-500 transition">' + p + '</span>';
-      });
-      document.getElementById('askSourcesList').innerHTML = sHtml || '<span class="text-zinc-500">无直接页面引用</span>';
-    }
-  } catch (err) {
-    alert('问答请求失败: ' + err);
-  } finally {
-    btn.innerHTML = '提问';
-    btn.disabled = false;
-  }
+    const data = await request('/ask?' + new URLSearchParams({q: query, top: 5, fuse: 1, expand: 1}));
+    byId('askResultBox').classList.remove('hidden');
+    byId('askAnswerText').textContent = data.answer || (data.answer_status === 'no_context' ? '知识库没有匹配资料。' : '模型回答未获取：' + (data.answer_error || 'unavailable'));
+    byId('askSourcesList').replaceChildren(...(data.context_paths || []).map(path => pageButton({path})));
+  } catch (error) {
+    byId('askResultBox').classList.remove('hidden');
+    byId('askAnswerText').textContent = '问答请求失败：' + error.message;
+  } finally { button.disabled = false; button.textContent = '提问'; }
 }
-
 async function loadFailures() {
-  const fList = document.getElementById('failuresList');
-  fList.innerHTML = '<div class="text-center py-8 text-zinc-500 text-xs"><i class="fa-solid fa-spinner fa-spin mr-2"></i>加载踩坑经验中...</div>';
+  message('failuresList', '加载中…');
   try {
-    const res = await fetch('/search?q=failure 踩坑&top=15&fuse=1');
-    if (res.ok) {
-      const data = await res.json();
-      let html = '';
-      (data.results || []).forEach(r => {
-        html += '<div onclick="openWikiDoc(\'' + r.path + '\')" class="p-4 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition cursor-pointer space-y-1.5">' +
-          '<div class="flex items-center gap-2">' +
-            '<i class="fa-solid fa-triangle-exclamation text-amber-400 text-xs"></i>' +
-            '<span class="font-semibold text-sm text-zinc-100">' + (r.title || r.path) + '</span>' +
-          '</div>' +
-          '<p class="text-xs text-zinc-400 leading-relaxed line-clamp-2">' + (r.abstract || '暂无经验摘要') + '</p>' +
-          '<div class="text-[11px] font-mono text-zinc-500">' + r.path + '</div>' +
-        '</div>';
-      });
-      fList.innerHTML = html || '<div class="text-center py-8 text-zinc-500 text-xs">暂无踩坑记录</div>';
-    }
-  } catch (e) {
-    fList.innerHTML = '<div class="text-center py-8 text-rose-400 text-xs">加载失败</div>';
-  }
+    const data = await request('/search?' + new URLSearchParams({q: 'failure 踩坑', top: 15, fuse: 1}));
+    if (!data.results?.length) return message('failuresList', '暂无踩坑记录');
+    byId('failuresList').replaceChildren(...data.results.map(pageButton));
+  } catch (error) { message('failuresList', '加载失败：' + error.message); }
 }
-
 async function loadWikiPages() {
   try {
-    const res = await fetch('/api/pages?limit=200');
-    if (res.ok) {
-      const data = await res.json();
-      wikiPagesCache = data.items || [];
-      renderWikiItems(wikiPagesCache);
-    }
-  } catch (e) {}
+    const data = await request('/api/pages?limit=200&q=' + encodeURIComponent(byId('wikiFilterInput').value));
+    wikiPagesCache = data.items || [];
+    byId('wikiTotalCount').textContent = data.total ?? wikiPagesCache.length;
+    renderWikiItems(wikiPagesCache);
+  } catch (error) { message('wikiItemsList', '加载失败：' + error.message); }
 }
-
 function renderWikiItems(list) {
-  let html = '';
-  list.forEach(p => {
-    html += '<div onclick="openWikiDoc(\'' + p.path + '\')" class="p-2.5 rounded-lg text-xs transition cursor-pointer bg-zinc-900/60 hover:bg-zinc-800 border border-transparent hover:border-zinc-700 text-zinc-300">' +
-      '<div class="font-medium truncate text-zinc-200">' + (p.title || p.path) + '</div>' +
-      '<div class="text-[10px] text-zinc-500 truncate mt-0.5">' + p.path + '</div>' +
-    '</div>';
-  });
-  document.getElementById('wikiItemsList').innerHTML = html || '<div class="text-center py-8 text-zinc-500 text-xs">无匹配页面</div>';
+  if (!list.length) return message('wikiItemsList', '无匹配页面');
+  byId('wikiItemsList').replaceChildren(...list.map(pageButton));
 }
-
-function filterWikiList() {
-  const kw = document.getElementById('wikiFilterInput').value.toLowerCase();
-  const filtered = wikiPagesCache.filter(p => (p.title && p.title.toLowerCase().includes(kw)) || p.path.toLowerCase().includes(kw));
-  renderWikiItems(filtered);
-}
-
+let filterTimer;
+function filterWikiList() { clearTimeout(filterTimer); filterTimer = setTimeout(loadWikiPages, 250); }
 async function openWikiDoc(path) {
   switchView('wiki');
   try {
-    const res = await fetch('/api/page?path=' + encodeURIComponent(path));
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById('wikiEmptyView').classList.add('hidden');
-      document.getElementById('wikiDetailView').classList.remove('hidden');
-      document.getElementById('wikiTitle').textContent = data.meta?.title || path;
-      document.getElementById('wikiPath').textContent = path;
-      document.getElementById('wikiBody').textContent = data.content || '';
-    }
-  } catch (e) {}
+    const data = await request('/api/page?path=' + encodeURIComponent(path));
+    byId('wikiEmptyView').classList.add('hidden');
+    byId('wikiDetailView').classList.remove('hidden');
+    byId('wikiTitle').textContent = data.meta?.title || path;
+    byId('wikiPath').textContent = path;
+    byId('wikiBody').textContent = data.content || '';
+  } catch (error) { byId('wikiEmptyView').textContent = '读取失败：' + error.message; }
 }
-
 async function loadRecentObs() {
   try {
-    const res = await fetch('/api/observations?limit=30');
-    if (res.ok) {
-      const data = await res.json();
-      let html = '';
-      (data.items || []).forEach(obs => {
-        html += '<div class="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs space-y-1.5">' +
-          '<div class="flex items-center justify-between text-zinc-400 text-[11px]">' +
-            '<span class="font-medium text-indigo-400 font-mono">[' + (obs.project || 'default') + ']</span>' +
-            '<span>' + (obs.created_at || '') + '</span>' +
-          '</div>' +
-          '<p class="text-zinc-200 leading-relaxed">' + obs.text + '</p>' +
-        '</div>';
-      });
-      document.getElementById('recentObsList').innerHTML = html || '<div class="text-center py-8 text-zinc-500 text-xs">暂无最近观察碎片</div>';
-    }
-  } catch (e) {}
+    const data = await request('/api/observations?limit=30');
+    if (!data.items?.length) return message('recentObsList', '暂无最近观察');
+    byId('recentObsList').replaceChildren(...data.items.map(obs => {
+      const item = node('article', '', 'p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2');
+      item.append(node('div', '[' + (obs.project || 'default') + '] ' + (obs.created_at || ''), 'text-xs text-indigo-300'), node('p', obs.text, 'text-sm whitespace-pre-wrap'));
+      return item;
+    }));
+  } catch (error) { message('recentObsList', '加载失败：' + error.message); }
 }
+async function loadStatus() {
+  try {
+    const data = await request('/api/overview');
+    byId('serviceState').textContent = '已连接 · ' + data.wiki_pages + ' 页';
+    byId('stat-p2').textContent = data.wiki_pages + ' 篇';
+    byId('stat-db2').textContent = (data.index_db_bytes / 1048576).toFixed(1) + ' MB';
+    const operation = data.last_operation;
+    byId('operationState').textContent = operation ? (operation.result || operation.status || '未获取') : '尚无操作报告';
+    byId('operationDetail').textContent = operation ? '最近阶段：' + (operation.last_stage || operation.failed_stage || operation.stage_names?.at(-1) || '未获取') : '新流水线运行后显示真实阶段';
+    byId('indexFreshness').textContent = data.index_updated_at ? new Date(data.index_updated_at * 1000).toLocaleString() : '尚无索引';
+    byId('pendingConflicts').textContent = '待处理候选：' + data.pending_candidates;
+    byId('apiAddress').textContent = location.host;
+  } catch (error) { byId('serviceState').textContent = '状态未获取：' + error.message; }
+}
+loadStatus();
 </script>
 </body>
 </html>

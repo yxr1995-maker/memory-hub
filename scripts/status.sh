@@ -3,7 +3,7 @@
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$HUB_DIR/staging"
+STAGING="${MEMORY_HUB_STAGING:-$HUB_DIR/staging}"
 WIKI="${WIKI_PATH:-$HOME/llm-wiki}"
 SESSIONS_DIR="${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions}"
 

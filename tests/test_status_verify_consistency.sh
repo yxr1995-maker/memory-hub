@@ -8,6 +8,17 @@ SCANNER="$ROOT/scripts/verify_tokens.py"
 FAIL=0
 FAIL_N=0
 
+# Hermetic verify dependencies: never touch the host's real Codex config.
+FIXTURE_ROOT="$(mktemp -d)"
+trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+mkdir -p "$FIXTURE_ROOT/wiki" "$FIXTURE_ROOT/automations"
+PYTHONPATH="$ROOT" python3 -m tests.helpers.full_auto_fixture seed-verify-dependencies   --root "$FIXTURE_ROOT" --automations "$FIXTURE_ROOT/automations"   --config "$FIXTURE_ROOT/codex-config.toml" --hooks "$FIXTURE_ROOT/hooks.json"   --db "$FIXTURE_ROOT/automations.db" --wiki "$FIXTURE_ROOT/wiki"
+export CODEX_AUTOMATIONS_DIR="$FIXTURE_ROOT/automations"
+export CODEX_CONFIG_FILE="$FIXTURE_ROOT/codex-config.toml"
+export CODEX_HOOKS_FILE="$FIXTURE_ROOT/hooks.json"
+export AUTOMATIONS_DB="$FIXTURE_ROOT/automations.db"
+SEEDED_WIKI="$FIXTURE_ROOT/wiki"
+
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; FAIL=1; FAIL_N=$((FAIL_N + 1)); }
 setup_wiki() {
@@ -116,12 +127,12 @@ else
   fail "status and verify incorrectly exclude non-memoryhub drafts"
 fi
 
-# 7. Real wiki: scanner yields 0 hits.
-REAL_RESULT=$(python3 "$SCANNER" "$HOME/llm-wiki" 2>&1 || true)
+# 7. Seeded wiki: scanner yields 0 hits.
+REAL_RESULT=$(python3 "$SCANNER" "$SEEDED_WIKI" 2>&1 || true)
 if echo "$REAL_RESULT" | grep -q 'token_hits=0'; then
-  pass "real wiki: token_hits=0"
+  pass "seeded wiki: token_hits=0"
 else
-  fail "real wiki token_hits unexpected: $REAL_RESULT"
+  fail "seeded wiki token_hits unexpected: $REAL_RESULT"
 fi
 
 # 8. --format json produces valid JSON.
@@ -154,10 +165,10 @@ else
   pass "credential value not in stdout"
 fi
 
-# 11. Both scripts exit 0 on clean wiki (verify.sh full run).
-bash "$ROOT/scripts/verify.sh" > /dev/null 2>&1 && \
-  pass "verify.sh exits 0 on real wiki" || \
-  fail "verify.sh exits non-zero on real wiki"
+# 11. verify.sh exits 0 on a clean seeded wiki with hermetic dependencies.
+WIKI_PATH="$SEEDED_WIKI" bash "$ROOT/scripts/verify.sh" > /dev/null 2>&1 && \
+  pass "verify.sh exits 0 on seeded wiki" || \
+  fail "verify.sh exits non-zero on seeded wiki"
 
 # 12. status.sh exits 0 on clean wiki.
 bash "$ROOT/scripts/status.sh" > /dev/null 2>&1 && \

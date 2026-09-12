@@ -15,6 +15,7 @@ from typing import Any
 
 from .frontmatter import PageDocument
 from .operation import TransactionContext
+from .codex_memory import clean_text
 from .schema import normalize_id
 
 
@@ -98,13 +99,15 @@ def load_manifest(path: Path) -> ClusterManifest:
 
 
 def _sanitize_obs_text(text: str) -> str:
-    cleaned = re.sub(r"(?:Bearers+[A-Za-z0-9._~+/-]+=*|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9_-]{20,})", "[REDACTED_SECRET]", text)
-    cleaned = re.sub(r"/(?:Users|home)/[A-Za-z0-9._-]+", "/[REDACTED_PATH]", cleaned)
-    return cleaned.strip()
+    # Reuse the hardened pipeline sanitizer; keep only the path masking that
+    # is specific to wiki provenance rules.
+    cleaned = re.sub(r"ghp_[A-Za-z0-9]{36}", "[REDACTED_SECRET]", clean_text(text))
+    return re.sub(r"/(?:Users|home)/[A-Za-z0-9._-]+", "/[REDACTED_PATH]", cleaned).strip()
 
 
 def scan_observations(staging: Path, manifest: ClusterManifest) -> tuple[ClusterObservation, ...]:
     results = []
+    seen_ids: set[str] = set()
     if not staging.is_dir():
         return ()
 
@@ -112,7 +115,7 @@ def scan_observations(staging: Path, manifest: ClusterManifest) -> tuple[Cluster
     for entry in manifest.entries.values():
         consumed_hashes.update(entry.observation_hashes)
 
-    pattern = re.compile(r"^observations-d{8}-d{6}.jsonl$")
+    pattern = re.compile(r"^observations-\d{8}-\d{6}\.jsonl$")
     for f in sorted(staging.iterdir()):
         if not pattern.match(f.name):
             continue
@@ -132,9 +135,19 @@ def scan_observations(staging: Path, manifest: ClusterManifest) -> tuple[Cluster
                 if not (20 <= len(text) <= 2000):
                     continue
 
-                proj = normalize_id(str(d.get("project_id") or d.get("project") or "default-project"), "default-project")
+                # Unnamed projects are invalid input: routing them to a shared
+                # bucket silently mixes unrelated observations, so drop them.
+                if not str(d.get("project_id") or d.get("project") or "").strip():
+                    continue
+                proj = normalize_id(str(d.get("project_id") or d.get("project")), "default-project")
                 epoch = int(d.get("created_at_epoch", 0))
                 date_str = datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%d") if epoch else "unknown"
+
+                # Duplicate observation ids collapse to one cluster member;
+                # keep the first occurrence deterministically.
+                if obs_id in seen_ids:
+                    continue
+                seen_ids.add(obs_id)
 
                 results.append(
                     ClusterObservation(
@@ -242,15 +255,18 @@ def render_merge_page(cluster: ClusterPlan, now: datetime | None = None) -> byte
         f"first_observed: '{cluster.first_time}'",
         f"last_observed: '{cluster.last_time}'",
         f"valid_at: '{now_iso}'",
-        f"abstract: '{cluster.abstract.replace(chr(10), ' ')}'",
+        f"created: '{now_iso[:10]}'",
+        f"updated: '{now_iso[:10]}'",
+        "abstract: '" + cluster.abstract.replace("\n", " ").replace("\r", " ").replace("'", "''") + "'",
         "---",
         f"# 合并记忆: {cluster.scope_id}",
         "",
-        f"## 概述\n- 跨日聚类产生 ({cluster.method}, 成员数 {len(cluster.members)})\n- 关键词: {cluster.abstract}\n",
+        f"## 概述\n- 跨日聚类产生 ({cluster.method}, 成员数 {len(cluster.members)})\n- 待核实：自动聚类整理，未作独立事实核验。\n- 关键词: {cluster.abstract}\n",
         "## 观察明细",
     ]
     for m in cluster.members:
-        frontmatter.append(f"- [{m.id}] ({m.created_at_date}) {m.text}")
+        member_hash = hashlib.sha256(m.id.encode("utf-8")).hexdigest()
+        frontmatter.append(f"- [{member_hash}] ({m.created_at_date}) {m.text}")
 
     return chr(10).join(frontmatter).encode("utf-8") + b"\n"
 
@@ -260,8 +276,10 @@ def commit_manifest(
     update: ManifestEntry,
     tx: TransactionContext,
 ) -> ManifestResult:
-    if "INDEX_SWAPPED" not in tx.journal.checkpoints or "LINT_PASSED" not in tx.journal.checkpoints:
-        raise ValueError("Cannot commit manifest before INDEX_SWAPPED and LINT_PASSED")
+    if "INDEX_SWAPPED" not in tx.journal.checkpoints:
+        raise ValueError("Cannot commit manifest before INDEX_SWAPPED")
+    if tx.operation.command == "maintain" and "LINT_PASSED" not in tx.journal.checkpoints:
+        raise ValueError("Cannot commit maintenance manifest before LINT_PASSED")
 
     current = load_manifest(path)
     if update.cluster_key in current.entries:
@@ -273,7 +291,10 @@ def commit_manifest(
     tx.inject("manifest.before_replace")
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_file = path.parent / f".{path.name}.tmp"
-    temp_file.write_text(json.dumps(current.to_dict(), indent=2), encoding="utf-8")
+    with temp_file.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(current.to_dict(), indent=2))
+        stream.flush()
+        os.fsync(stream.fileno())
     os.chmod(str(temp_file), 0o600)
     os.replace(str(temp_file), str(path))
     tx.inject("manifest.after_replace")

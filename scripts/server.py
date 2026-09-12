@@ -42,7 +42,7 @@ HUB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WIKI = os.environ.get("WIKI_PATH", os.path.expanduser("~/llm-wiki"))
 DATA_DIR = os.environ.get("MEMORY_HUB_DATA", os.path.expanduser("~/.memory-hub"))
 TRASH_DIR = os.path.join(DATA_DIR, "trash")
-STAGING = os.path.join(HUB, "staging")
+STAGING = os.environ.get("MEMORY_HUB_STAGING", os.path.join(HUB, "staging"))
 SESSIONS_DIR = os.environ.get("CODEX_SESSIONS_DIR", os.path.expanduser("~/.codex/sessions"))
 MAX_BODY = 2 * 1024 * 1024
 EXCLUDE_DIRS = {"raw", "_legacy-para", "_archive"}
@@ -190,6 +190,7 @@ def scan_pages() -> list:
                 "tags": [str(t) for t in tags],
                 "updated": str(meta.get("updated") or ""),
                 "abstract": str(meta.get("abstract") or ""),
+                "status": str(meta.get("status") or "active"),
                 "size": st.st_size,
                 "mtime": int(st.st_mtime),
             })
@@ -251,7 +252,17 @@ def api_overview() -> dict:
                         t["last_ms"] = float(parts[2])
         except (OSError, ValueError):
             pass
+    operation = None
+    try:
+        with open(os.path.join(DATA_DIR, "reports", "latest-operation.json"), encoding="utf-8") as stream:
+            operation = json.load(stream)
+    except (OSError, ValueError):
+        pass
+    index_path = os.path.join(DATA_DIR, "index.db")
     return {
+        "last_operation": operation,
+        "index_updated_at": os.path.getmtime(index_path) if os.path.isfile(index_path) else None,
+        "pending_candidates": sum(p.get("status") == "candidate" or p.get("meta", {}).get("status") == "candidate" for p in pages),
         "wiki_pages": len(pages),
         "by_type": dict(sorted(by_type.items(), key=lambda kv: -kv[1])),
         "observations_files": len(obs_files),
@@ -720,6 +731,22 @@ def api_graph(include_atoms: bool) -> dict:
                          "showOrphans": bool(obs_cfg.get("showOrphans"))}}
 
 class Handler(BaseHTTPRequestHandler):
+    def _trusted_request(self):
+        try:
+            host = urlparse("http://" + self.headers.get("Host", ""))
+            valid_host = host.hostname == "localhost" or ipaddress.ip_address(host.hostname).is_loopback
+            if not valid_host or host.port != self.server.server_port:
+                return False
+        except (ValueError, TypeError):
+            return False
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True  # Non-browser local API clients.
+        if origin == "http://" + self.headers.get("Host", ""):
+            return True
+        allowed = {x.strip() for x in os.environ.get("MEMORY_HUB_ALLOWED_ORIGINS", "").split(",") if x.strip() and x.strip() not in ("*", "null")}
+        return origin in allowed
+
     # send_response 包一层以捕获状态码，供访问日志使用
     def send_response(self, code, message=None):
         self._mh_status = code
@@ -729,6 +756,8 @@ class Handler(BaseHTTPRequestHandler):
         t0 = time.time()
         self._mh_refs = None
         try:
+            if not self._trusted_request():
+                return self._json({"error": "untrusted host or origin"}, 403)
             fn()
         finally:
             u = urlparse(self.path)
@@ -753,6 +782,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if u.path == "/health":
             return self._json({"status": "ok"})
+        if u.path == "/dashboard.css":
+            with open(os.path.join(HUB, "ui", "dashboard.css"), encoding="utf-8") as stylesheet:
+                return self._text(stylesheet.read(), 200, "text/css; charset=utf-8")
         if u.path in ("/", "/dashboard", "/ui"):
             accept = self.headers.get("Accept", "")
             if first("format") == "json" or ("application/json" in accept and "text/html" not in accept):
@@ -930,14 +962,19 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_OPTIONS(self):
+        if not self._trusted_request():
+            return self._json({"error": "untrusted host or origin"}, 403)
         self.send_response(204)
         self._cors()
         self.send_header("Content-Length", "0")
         self.end_headers()
 
     def _cors(self):
-        # 仅监听 127.0.0.1；放开 CORS 供 Codex 渲染进程内的用户脚本跨源调用
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if origin and self._trusted_request():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 

@@ -8,6 +8,8 @@ import re
 import sqlite3
 import subprocess
 import sys
+import socket
+import urllib.error
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,11 +55,15 @@ class AskContext:
     pages: dict[str, IndexedPage]
     context_text: str
     answer: str | None = None
+    answer_status: str = "no_context"
+    answer_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "context_paths": [r.path for r in self.results],
             "answer": self.answer,
+            "answer_status": self.answer_status,
+            "answer_error": self.answer_error,
             "results": [r.to_dict() for r in self.results],
         }
 
@@ -93,7 +99,7 @@ class SqliteRecallBackend:
                 rows = con.execute(sql, (match_expr, limit)).fetchall()
                 if not rows:
                     return self._rg_fallback(query, limit)
-                return [RecallHit(r[0], float(r[1]), rank=idx+1) for idx, r in enumerate(rows)]
+                return [RecallHit(r[0], float(r[1]), rank=idx+1, abstract=r[2] or "", content=r[3] or "") for idx, r in enumerate(rows)]
         except Exception:
             return self._rg_fallback(query, limit)
 
@@ -120,7 +126,7 @@ class SqliteRecallBackend:
         if not self.wiki_path.is_dir():
             return []
         try:
-            cmd = ["rg", "-i", "-l", query, str(self.wiki_path), "-g", "*.md", "-g", "!**/raw/**", "-g", "!**/_legacy-para/**"]
+            cmd = ["rg", "-i", "-l", "-F", "-g", "*.md", "-g", "!**/raw/**", "-g", "!**/_legacy-para/**", "-g", "!**/_archive/**", "--", query, str(self.wiki_path)]
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
             hits = []
             for line in out.splitlines():
@@ -192,9 +198,12 @@ class MemoryService:
         
         context_text = "\n\n".join(blocks)
         answer = None
+        answer_status = "no_context"
+        answer_error = None
         proxy_url = os.environ.get("OPENCODEX_URL", "http://127.0.0.1:10100/v1")
         model = os.environ.get("CLAUDE_MEM_MODEL", "sensenova/sensenova-6.8-flash-lite")
         if context_text.strip():
+            answer_status = "unavailable"
             payload = {
                 "model": model,
                 "messages": [
@@ -207,12 +216,31 @@ class MemoryService:
                 import urllib.request
                 data = json.dumps(payload).encode("utf-8")
                 req = urllib.request.Request(f"{proxy_url}/chat/completions", data=data, headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=1) as resp:
+                timeout = float(os.environ.get("MEMORY_HUB_ASK_TIMEOUT", "15"))
+                if not math.isfinite(timeout) or not 0 < timeout <= 120:
+                    raise ValueError("invalid answer timeout")
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
                     if resp.status == 200:
                         parsed = json.loads(resp.read().decode("utf-8"))
                         answer = parsed.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if not isinstance(answer, str) or not answer.strip():
+                            answer = None
+                            answer_error = "empty_response"
+                        else:
+                            answer_status = "answered"
+                    else:
+                        answer_error = "http_error"
+            except (TimeoutError, socket.timeout):
+                answer_error = "timeout"
+            except urllib.error.HTTPError:
+                answer_error = "http_error"
+            except urllib.error.URLError as exc:
+                answer_error = "timeout" if isinstance(exc.reason, (TimeoutError, socket.timeout)) else "connection_error"
+            except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+                answer_error = "invalid_response_or_config"
             except Exception:
                 answer = None
+                answer_error = "provider_error"
 
-        return AskContext(results=response.results, pages=loaded, context_text=context_text, answer=answer)
-
+        return AskContext(results=response.results, pages=loaded, context_text=context_text, answer=answer,
+                          answer_status=answer_status, answer_error=answer_error)

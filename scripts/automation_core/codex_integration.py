@@ -154,16 +154,36 @@ def doctor(data: Path, wiki: Path, *, probe_mcp: bool = True) -> dict:
 def main(argv=None) -> int:
     parser=argparse.ArgumentParser()
     parser.add_argument('command',choices=['codex','memory-worker'])
-    parser.add_argument('action',nargs='?',default='doctor',choices=['doctor','configure','launchagent'])
+    parser.add_argument('action',nargs='?',default='doctor',choices=['doctor','configure','launchagent','stage-install','unstage-install'])
+    parser.add_argument('--plan',type=Path,help='Explicit local source/target plan for staging; does not register a plugin')
+    parser.add_argument('--backup',type=Path,help='Receipt directory from stage-install')
+    parser.add_argument('--home',type=Path,help='Home used for source staging; defaults to the current home')
     parser.add_argument('--json',action='store_true')
     parser.add_argument('--once',action='store_true')
     parser.add_argument('--retry-failed',action='store_true')
     for key in ('recall','capture','publish'):
         parser.add_argument('--'+key,choices=['on','off'])
     args=parser.parse_args(argv)
+    if args.action in ('stage-install','unstage-install') and args.command!='codex':
+        parser.error('install actions require the codex command')
     data=Path(os.environ.get('MEMORY_HUB_DATA',str(Path.home()/'.memory-hub'))).resolve()
     wiki=Path(os.environ.get('WIKI_PATH',str(Path.home()/'llm-wiki'))).resolve()
-    if args.command=='memory-worker':
+    if args.command=='codex' and args.action in ('stage-install','unstage-install'):
+        from .codex_install import stage_install,unstage_install
+        try:
+            if args.action=='stage-install':
+                if args.plan is None:raise ValueError('--plan required')
+                plan=json.loads(args.plan.read_text())
+                if not isinstance(plan,dict):raise ValueError('plan must be an object')
+                backup=stage_install(plan,data,sys.executable,home=args.home or Path.home(),wiki=wiki)
+                result={'backup':str(backup),'registered':False,'status':'staged'}
+            else:
+                if args.backup is None:raise ValueError('--backup required')
+                result=unstage_install(args.backup)
+        except (OSError,ValueError,KeyError,TypeError) as error:
+            print(json.dumps({'error':str(error)},ensure_ascii=False))
+            return 2
+    elif args.command=='memory-worker':
         from .memory_worker import run_once
         result=run_once(wiki,data,retry_failed=args.retry_failed)
     elif args.action=='configure':

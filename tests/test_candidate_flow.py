@@ -133,21 +133,27 @@ def main():
         (scripts / "search.sh").write_text("#!/usr/bin/env bash\nprintf 'not a search result\\n'\n", encoding="utf-8")
         golden = tmp / "golden.jsonl"
         golden.write_text(json.dumps({"q": "q", "expected": "wanted.md"}) + "\n", encoding="utf-8")
-        report = tmp / "eval.md"
+        report = tmp / "eval.json"
         proc = run(sys.executable, str(scripts / "eval.py"), "--golden", str(golden), "--report", str(report))
         assert proc.returncode == 1
         assert not report.exists()
-        (scripts / "search.sh").write_text("#!/usr/bin/env bash\nprintf '== 混合检索 (RRF k=60): q ==\\n[0.123] wanted.md\\n'\n", encoding="utf-8")
+        (scripts / "search.sh").write_text(
+            "#!/usr/bin/env bash\nprintf '%s\\n' '{\"results\":[{\"path\":\"wanted.md\"}]}'\n",
+            encoding="utf-8",
+        )
         proc = run(sys.executable, str(scripts / "eval.py"), "--golden", str(golden), "--report", str(report))
         assert proc.returncode == 0
-        assert "hit@5: 1/1" in report.read_text(encoding="utf-8")
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        assert payload["hits"] == 1 and payload["total"] == 1
+        assert payload["hit_at_5"] == 1.0
+        assert "meta" in payload
 
         query_wiki = tmp / "query-wiki"
         (query_wiki / "notes").mkdir(parents=True)
         (query_wiki / "notes" / "page.md").write_text("needle\n", encoding="utf-8")
-        proc = run("bash", str(ROOT / "scripts" / "search.sh"), "needle", "--top", "1", "--no-fts", env={**os.environ, "WIKI_PATH": str(query_wiki)})
+        proc = run("bash", str(ROOT / "scripts" / "search.sh"), "needle", "--top", "1", "--no-fts", env={**os.environ, "WIKI_PATH": str(query_wiki), "MEMORY_HUB_DATA": str(tmp / "query-data")})
         assert proc.returncode == 0, proc.stderr
-        assert "[1 处] notes/page.md" in proc.stdout
+        assert "notes/page.md" in proc.stdout
 
 
 if __name__ == "__main__":

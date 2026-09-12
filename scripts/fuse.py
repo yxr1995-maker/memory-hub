@@ -38,27 +38,13 @@ def main():
     ap.add_argument("--tau", type=float, default=DEFAULT_TAU, help="时间衰减常数(天),默认 90; --tau 0 关闭")
     args = ap.parse_args()
 
-    hub = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    py = "python3"
+    from scripts.automation_core.service import MemoryService
+    hub = pathlib.Path(__file__).resolve().parents[1]
+    wiki = pathlib.Path(os.environ.get("WIKI_PATH", str(pathlib.Path.home() / "llm-wiki")))
+    data = pathlib.Path(os.environ.get("MEMORY_HUB_DATA", str(pathlib.Path.home() / ".memory-hub")))
     q = args.query
-
-    fts5 = subprocess.run(["bash", hub + "/scripts/search.sh", q, "--top", "20", "--no-fallback"], capture_output=True, text=True).stdout
-    vec = subprocess.run([py, hub + "/scripts/embed.py", "search", q, "-n", "20"], capture_output=True, text=True).stdout
-
-    fts_hits = [RecallHit(path, score, rank=idx+1) for idx, (score, path) in enumerate(_filter_lines(fts5))]
-    vec_hits = [RecallHit(path, score, rank=idx+1) for idx, (score, path) in enumerate(_filter_lines(vec))]
-
-    recalls = {
-        "original_fts": fts_hits,
-        "original_vec": vec_hits,
-    }
-
-    db_path = os.path.join(os.environ.get("MEMORY_HUB_DATA", os.path.expanduser("~/.memory-hub")), "index.db")
-    pages = load_page_records(db_path) if os.path.isfile(db_path) else {}
-
-    plan = QueryPlan(query=q, query_hash="qhash", expansions=(), planner="original-only", fallback_reason=None, l0_snippets=(), latency_ms=0.0)
     request = SearchRequest(query=q, top=args.top, fuse=True, expand=False)
-    results = rank_results(request, plan, recalls, pages, NullMetrics(), tau=args.tau)
+    results = MemoryService(wiki, data, hub).search(request, tau=args.tau).results
 
     header = "== 混合检索 (RRF k=60"
     header += f", 时间衰减 tau={int(args.tau)}d)" if args.tau and args.tau > 0 else ", 无时间衰减)"

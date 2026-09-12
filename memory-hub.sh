@@ -28,7 +28,7 @@ usage() {
   echo "  codex doctor --json  Codex 自动记忆诊断（configure 管理开关）"
   echo "  memory-worker --once 后台记忆整理、发布与索引恢复"
   echo "  watch               定时采集循环（每 60 秒）"
-  echo "  maintain [--safe|--no-auto] [--apply] 跨日聚类与知识库维护 (default: auto=on, apply=on, commit=on)"
+  echo "  maintain [--safe|--no-auto] [--apply] [--commit] 知识库维护（默认应用并提交；--safe 仅预览）"
   echo "  run [--safe|--no-auto] [--apply] 全链路自动化闭环 (default: auto=on, apply=on, commit=on)"
 }
 
@@ -61,7 +61,6 @@ case "$CMD" in
   verify) exec "$HUB_DIR/scripts/verify.sh" "$@" ;;
   metrics) exec "$HUB_DIR/scripts/metrics.sh" "$@" ;;
   serve) exec python3 "$HUB_DIR/scripts/server.py" "$@" ;;
-  codex|memory-worker) exec python3 "$HUB_DIR/scripts/codex_integration.py" "$CMD" "$@" ;;
   watch)
     echo "== memory-hub watch: 每 60 秒增量采集 + 蒸馏 (Ctrl-C 退出) =="
     while true; do
@@ -74,6 +73,7 @@ case "$CMD" in
       sleep 60
     done
     ;;
+  codex|memory-worker) exec python3 "$HUB_DIR/scripts/codex_integration.py" "$CMD" "$@" ;;
   maintain) exec python3 "$HUB_DIR/scripts/automation_cli.py" maintain "$@" ;;
   run) exec python3 "$HUB_DIR/scripts/automation_cli.py" run "$@" ;;
   *) echo "未知命令: $CMD" >&2; usage; exit 2 ;;

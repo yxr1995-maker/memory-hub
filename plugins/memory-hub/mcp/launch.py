@@ -25,6 +25,16 @@ def main() -> int:
     if not data.is_absolute() or not wiki.is_absolute():
         raise ValueError('memory paths must be absolute')
     env = dict(os.environ, MEMORY_HUB_DATA=str(data), WIKI_PATH=str(wiki))
+    # Distinguish explicit scope from a default derived from the plugin cwd.
+    explicit_scope = any(os.environ.get(k) is not None for k in (
+        'MEMORY_HUB_DATA', 'MEMORY_HUB_WORKSPACE',
+        'MEMORY_HUB_EXPERIENCE_COLLECTIONS', 'MEMORY_HUB_EXPERIENCE_ROOTS'))
+    mapped = adapter['_match_workspace'](config.get('workspaces', {}), Path(workspace).resolve())
+    runtime_file = adapter['_runtime_file']()
+    env['MEMORY_HUB_EXPERIENCE_HOST_ROOTS'] = '1' if runtime_file and not explicit_scope and not mapped else '0'
+    if runtime_file:
+        env['MEMORY_HUB_EXPERIENCE_RUNTIME'] = str(runtime_file)
+
     env['PYTHONPATH'] = str(hub) + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
     python = config.get('python_path') or sys.executable
     os.execvpe(python, [python, str(hub / 'mcp' / 'server.py')], env)

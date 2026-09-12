@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Unit Tests & Static Verification
+    name: Tests & Static Verification
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -35,18 +35,29 @@ jobs:
         run: |
           brew install ripgrep jq sqlite3 || true
 
+      - name: Install test dependencies
+        run: python3 -m pip install -r requirements-test.txt
+
       - name: Check Python syntax
         run: |
-          python3 -m py_compile scripts/*.py tests/*.py
+          python3 -m py_compile scripts/*.py scripts/automation_core/*.py tests/*.py tests/helpers/*.py
 
-      - name: Check Bash syntax
+      - name: Check Bash syntax (per file)
         run: |
-          bash -n memory-hub.sh scripts/*.sh tests/*.sh
+          set -e
+          for f in memory-hub.sh scripts/*.sh tests/*.sh; do bash -n "$f"; done
 
-      - name: Run Python unit tests
+      - name: Run full test suite (pytest collects pytest + unittest cases)
         run: |
-          python3 -m unittest discover -s tests -p 'test_*.py'
+          OPENCODEX_URL=http://127.0.0.1:1/v1 python3 -m pytest -q tests/ --disable-warnings --maxfail=5
 
-      - name: Run status & verify consistency tests
+      - name: Run script-style regression suites
+        run: |
+          set -e
+          python3 tests/test_candidate_flow.py
+          python3 tests/test_verify_tokens.py
+          python3 tests/test_full_auto_cli.py --evidence-dir "${{ runner.temp }}/full-auto-evidence"
+
+      - name: Run status & verify consistency checks
         run: |
           bash tests/test_status_verify_consistency.sh
