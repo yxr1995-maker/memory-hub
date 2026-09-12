@@ -192,10 +192,12 @@ class RunStageRunner(StageRunner):
             slug, directory, rel_target, status = (line.split("|") + ["", "", "", ""])[:4]
             if not slug:
                 continue
+            # publish.sh records the file name, which already carries ".md".
+            slug_path = slug if slug.endswith(".md") else f"{slug}.md"
             if status == "candidate" and rel_target:
                 paths.add(rel_target)
             elif directory:
-                paths.add(f"{directory}/{slug}.md")
+                paths.add(f"{directory}/{slug_path}")
         if paths:
             paths.update({"index.md", "log.md"})
         return sorted(paths)

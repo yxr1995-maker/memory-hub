@@ -23,6 +23,23 @@ def setup(tmp_path):
     return fx, tx
 
 
+def test_published_slug_with_md_suffix_enters_commit_whitelist(tmp_path):
+    staging = tmp_path / 'staging'
+    staging.mkdir()
+    (staging / '.published-this-run').write_text('2026-09-12-test.md|notes||active\n')
+    runner = RunStageRunner(staging)
+    assert runner._stage_commit_paths() == ['index.md', 'log.md', 'notes/2026-09-12-test.md']
+
+
+def test_published_candidate_row_uses_recorded_conflict_target(tmp_path):
+    staging = tmp_path / 'staging'
+    staging.mkdir()
+    (staging / '.published-this-run').write_text(
+        '2026-09-12-c.md|drafts/memoryhub|atoms/keep.md|candidate\n')
+    runner = RunStageRunner(staging)
+    assert runner._stage_commit_paths() == ['atoms/keep.md', 'index.md', 'log.md']
+
+
 def test_cluster_manifest_is_finalized_after_index(tmp_path):
     fx, tx = setup(tmp_path)
     runner = RunStageRunner(fx.staging)
