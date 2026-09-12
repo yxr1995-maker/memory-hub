@@ -247,6 +247,17 @@ def test_parse_page_literal_block_scalar_and_patch_preserves_it(tmp_path: Path) 
     assert b"scope: project" in rendered
 
 
+def test_parse_page_accepts_block_scalar_indicator_with_trailing_comment(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "commented.md",
+        b"---\ntitle: T\nsource_quote: >- # folded quote\n  folded text\nstatus: fresh\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["source_quote"] == "folded text"
+    assert page.frontmatter["status"] == "fresh"
+
+
 def test_parse_page_accepts_unindented_sequences(tmp_path: Path) -> None:
     path = _write_page(
         tmp_path,

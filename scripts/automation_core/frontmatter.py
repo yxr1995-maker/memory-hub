@@ -12,6 +12,12 @@ _ITEM = re.compile(r"^([ \t]*)-(?:[ \t]+(.*))?$")
 _BLOCK_SCALAR = frozenset({"|", ">", "|-", "|+", ">-", ">+"})
 
 
+def _block_indicator(value: str) -> str | None:
+    """Return the block scalar indicator, tolerating a YAML trailing comment."""
+    token = value.strip().split("#", 1)[0].strip()
+    return token if token in _BLOCK_SCALAR else None
+
+
 def _decode_scalar(value: str) -> object:
     value = value.strip()
     if not value:
@@ -81,8 +87,9 @@ def parse_page(path: Path) -> PageDocument:
         values: list[object] = []
         cursor = index + 1
         key_indent = len(line) - len(line.lstrip())
-        if raw.strip() in _BLOCK_SCALAR:
-            frontmatter[key], cursor = _read_block(lines, cursor, raw.strip(), key_indent)
+        indicator = _block_indicator(raw)
+        if indicator:
+            frontmatter[key], cursor = _read_block(lines, cursor, indicator, key_indent)
         else:
             while cursor < len(lines):
                 item = _ITEM.fullmatch(lines[cursor])
@@ -90,8 +97,9 @@ def parse_page(path: Path) -> PageDocument:
                     break
                 item_indent = len(item.group(1))
                 item_text = item.group(2) or ""
-                if item_text.strip() in _BLOCK_SCALAR:
-                    value, cursor = _read_block(lines, cursor + 1, item_text.strip(), item_indent)
+                item_indicator = _block_indicator(item_text)
+                if item_indicator:
+                    value, cursor = _read_block(lines, cursor + 1, item_indicator, item_indent)
                     values.append(value)
                 else:
                     values.append(_decode_scalar(item_text))
