@@ -31,7 +31,10 @@ def main() -> int:
         'MEMORY_HUB_EXPERIENCE_COLLECTIONS', 'MEMORY_HUB_EXPERIENCE_ROOTS'))
     mapped = adapter['_match_workspace'](config.get('workspaces', {}), Path(workspace).resolve())
     runtime_file = adapter['_runtime_file']()
-    env['MEMORY_HUB_EXPERIENCE_HOST_ROOTS'] = '1' if runtime_file and not explicit_scope and not mapped else '0'
+    # A host scope file at the resolved data root selects the global experience
+    # store from any workspace; only hosts without one fall back to host roots.
+    host_scope = (data / 'experience-host.json').is_file()
+    env['MEMORY_HUB_EXPERIENCE_HOST_ROOTS'] = '1' if runtime_file and not explicit_scope and not mapped and not host_scope else '0'
     if runtime_file:
         env['MEMORY_HUB_EXPERIENCE_RUNTIME'] = str(runtime_file)
 
