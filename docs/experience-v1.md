@@ -132,6 +132,18 @@ Media references could only be found through the episode goal, reason or narrati
 
 Feedback rows (`displayed`, `adopted`, `modified`, `validated`, `corrected`, `rejected`) were stored and never read, so an owner-validated episode and a rejected one ranked identically. Feedback now folds into a fixed-weight utility (validated 2, adopted 1, modified 1, rejected -2, displayed and corrected 0) that acts as a **secondary** sort key only: relevance stays primary, so feedback can reorder equally relevant candidates and cannot lift a one-term match over a two-term match. An agent's own report is worth less than an owner-attested result, and a rejected episode is still returned rather than hidden. Frozen comparison: all eight pre-registered criteria pass on two runs, including no-feedback identity, relevance dominance, authorization and reversibility; promoting three episodes that the plain order left outside the three-card budget changes which cards come back. Affected cards carry `feedback_utility` with the score, the counted actions and `basis: feedback_tie_break_only`. Default: on whenever a host scope file exists; `MEMORY_HUB_EXPERIENCE_UTILITY=0` opts out and restores the plain order. Cost at six candidates: one extra ID-filtered SELECT, 0.25 ms to 0.23-0.34 ms per recall. No model, no credit assignment, no user-preference inference, and no claim about task-outcome benefit.
 
+## In daily use (2026-09-13)
+
+All of M1-M5 is now in place: the scope is active for every Codex workspace, the three
+experience tools sit next to the six legacy ones, and each M4 extension has a frozen
+comparison, a default-on switch and an explicit opt-out. While it runs, the things worth
+watching are natural recall without being asked, corrections that actually hold, feedback
+that moves the right episodes, stale or misapplied episodes, captioned media findability
+(an uncaptioned artifact is invisible by design), and recall cost. The local checklist with
+the exact commands is `docs/evidence/experience-v1/使用观察清单-20260913.md`. Distribution,
+compatibility and uninstall are in `docs/install.md`. Still unproven: task-outcome benefit
+(the M2 question); M4 measured retrieval and ordering quality only.
+
 ## Frozen M2 diagnostic
 
 `evaluation.experience_v1.m2` reuses the existing snapshot freezer, B/C retrieval, Agnes transport and fixed-action executor. It freezes four previously exposed engineering cases plus four new synthetic creative briefs, then performs 24 single-response calls across A/B/C. This is a bounded diagnostic, not an unseen generalization benchmark or a Desktop acceptance substitute.
