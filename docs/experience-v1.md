@@ -115,6 +115,11 @@ Rollback: remove only the synthetic workspace's `mcp_servers.memory-hub` and `pl
 
 A complete 36-session A/B/C comparison ran on the free SenseNova route (`sensenova/sensenova-6.8-flash-lite`) with zero transport errors, per-cell model-route audits, an independent execution audit and two structurally validated blind reviews from different model families. Outcome: engineering and negative-transfer tasks ceilinged for every group; creative intent median was C=5.0 vs B=5.0 under one reviewer and C=4.0 vs B=5.0 under the other; no two checkable improvements over B. The frozen comparison did not meet the M2 exit criteria. On 2026-09-12 the owner decided to pass M2 anyway; that pass is recorded as a product decision, M3 (single-workspace daily use) is unblocked but not enabled, and ordinary retrieval stays the default. Evidence: docs/evidence/experience-v1/m2-sensenova-20260912/ (交付记录.md, gate-result.json, execution-audit.json, review-a/b.json).
 
+## M3 activation (2026-09-12)
+
+The experience path is active for every Codex workspace by owner instruction. `~/.memory-hub/experience-host.json` grants one collection (`codex`) with `profile:false`, so the six legacy memory tools stay available next to `recall_for_decision`, `read_evidence` and `record_episode`; the store lives at `~/.memory-hub/experience.sqlite3`. The plugin launcher treats a host scope file at the resolved data root as explicit scope, so no per-workspace mapping is needed. Rollback: empty that file, or restore the launcher backup in docs/evidence/experience-v1/m3-activation-20260912/cache-backup/. Availability is verified; daily benefit is not.
+
+
 ## Frozen M2 diagnostic
 
 `evaluation.experience_v1.m2` reuses the existing snapshot freezer, B/C retrieval, Agnes transport and fixed-action executor. It freezes four previously exposed engineering cases plus four new synthetic creative briefs, then performs 24 single-response calls across A/B/C. This is a bounded diagnostic, not an unseen generalization benchmark or a Desktop acceptance substitute.
