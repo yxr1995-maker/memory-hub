@@ -141,3 +141,89 @@ def test_empty_baseline_requires_cached_to_equal_verified_whitelist(operation_fi
     failed = stage_exact(operation_fixture.repo, tx2, [operation_fixture.owned("next.md")])
     assert failed.result == "whitelist_mismatch"
     assert "next.md" not in operation_fixture.cached_paths()
+
+
+def test_rollback_reverts_only_this_operation_commit(operation_fixture: OperationFixture) -> None:
+    tx = operation_fixture.transaction()
+    report = stage_exact(operation_fixture.repo, tx, [operation_fixture.owned("owned.md")])
+    commit_report = commit_exact(operation_fixture.repo, tx, report)
+    assert commit_report.result == "committed"
+    baseline = subprocess.run(
+        ["git", "rev-parse", "HEAD~1"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    rollback_transaction(tx)
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert head == baseline
+    assert not (operation_fixture.repo / "owned.md").exists()
+
+
+def test_rollback_preserves_later_external_commit(operation_fixture: OperationFixture) -> None:
+    tx = operation_fixture.transaction()
+    report = stage_exact(operation_fixture.repo, tx, [operation_fixture.owned("owned.md")])
+    commit_report = commit_exact(operation_fixture.repo, tx, report)
+    assert commit_report.result == "committed"
+
+    # A human/another process commits after the failed operation.
+    write_page(operation_fixture.repo, "external.md", {}, "external\n")
+    subprocess.run(["git", "add", "external.md"], cwd=operation_fixture.repo, check=True)
+    subprocess.run(["git", "commit", "-m", "external"], cwd=operation_fixture.repo, check=True)
+    external_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    rollback_transaction(tx)
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert head == external_head
+    assert (operation_fixture.repo / "external.md").read_text(encoding="utf-8").endswith("external\n")
+    assert (operation_fixture.repo / "owned.md").exists()
+
+
+def test_commit_hook_failure_leaves_no_operation_staging(operation_fixture: OperationFixture) -> None:
+    hook = operation_fixture.repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    tx = operation_fixture.transaction()
+    report = stage_exact(operation_fixture.repo, tx, [operation_fixture.owned("owned.md")])
+    assert report.result == "exact"
+    with pytest.raises(RuntimeError, match="git commit failed"):
+        commit_exact(operation_fixture.repo, tx, report)
+    assert operation_fixture.cached_paths() == []
+    assert (operation_fixture.repo / "owned.md").is_file()
+
+
+def test_rollback_reports_conflict_when_later_commit_touched_owned_file(operation_fixture: OperationFixture) -> None:
+    tx = operation_fixture.transaction()
+    page = operation_fixture.repo / "init.md"
+    original = page.read_bytes()
+    tx.journal.save_before_images([page])
+    page.write_bytes(b"operation edit\n")
+    # External history modifies the same file after the operation snapshot.
+    subprocess.run(["git", "add", "init.md"], cwd=operation_fixture.repo, check=True)
+    subprocess.run(["git", "commit", "-m", "external edit"], cwd=operation_fixture.repo, check=True, capture_output=True)
+    external_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    report = rollback_transaction(tx)
+
+    assert not report.restored
+    assert report.conflict_paths == (str(page.absolute()),)
+    assert page.read_bytes() == b"operation edit\n"  # untouched: external commit wins
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=operation_fixture.repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert head == external_head
+    assert original != b"operation edit\n"

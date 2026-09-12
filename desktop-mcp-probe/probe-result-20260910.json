@@ -1,0 +1,17 @@
+{
+  "task": "desktop_mcp_probe protocol-callability probe (read-only)",
+  "date": "2026-09-10",
+  "method": "Current Desktop session tool catalog (825 entries) + direct tool invocation from exec isolate; no server/config edits",
+  "tool_catalog": {
+    "experience_tools_present": ["mcp__memory_hub__recall_for_decision", "mcp__memory_hub__read_evidence", "mcp__memory_hub__record_episode"],
+    "server": "Memory Hub plugin launcher, mcp/server.py processes confirmed running on host"
+  },
+  "calls": {
+    "memory_status": {"result": "错误: 执行超时（>20s）: status.sh", "isError": false, "note": "tool round-trip succeeded; backend status script timed out"},
+    "recall_for_decision": {"result": "Error executing tool recall_for_decision: WORKSPACE_UNAVAILABLE: no unique authorized workspace root", "isError": true},
+    "read_evidence": {"result": "Error executing tool read_evidence: WORKSPACE_UNAVAILABLE: no unique authorized workspace root", "isError": true, "note": "invalid probe id, refusal shape as designed"},
+    "record_episode": {"called": false, "note": "write tool, out of read-only scope"}
+  },
+  "conclusion": "Protocol callability CONFIRMED: all three experience tools are mounted and invocable; server responds with typed errors over the round-trip. Experience reads fail with WORKSPACE_UNAVAILABLE in this session (host-roots scope finds no unique authorized workspace root); memory_status times out >20s.",
+  "running_sessions": "none"
+}

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$HUB_DIR/staging"
+STAGING="${MEMORY_HUB_STAGING:-$HUB_DIR/staging}"
 ARCHIVE="$STAGING/archive"
 KEEP=1
 APPLY=0

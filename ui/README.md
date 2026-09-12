@@ -29,7 +29,9 @@ bash memory-hub.sh serve
 python3 scripts/server.py --port 8787 --host 127.0.0.1
 ```
 
-默认地址 `http://127.0.0.1:8787`，所有响应带 CORS `Access-Control-Allow-Origin: *`。
+默认地址 `http://127.0.0.1:8787`。生产入口为该地址直接提供的 `dashboard.html`；`dashboard/` 是独立前端原型，`memory-hub-admin.js` 是兼容用户脚本，共享 REST 服务，不各自实现业务规则。
+
+服务验证 loopback Host 与端口，浏览器默认仅允许同源。需要可信用户脚本跨源连接时，使用 `MEMORY_HUB_ALLOWED_ORIGINS` 显式配置完整 Origin（逗号分隔）；不接受通配或 `null`。普通本地 CLI 无 Origin 仍可访问。不要为了兼容脚本恢复通配 CORS。
 
 ## 载入方式
 
@@ -66,7 +68,7 @@ curl -s http://127.0.0.1:8787/health
 
 返回 `{"status":"ok"}` 说明服务端 OK，继续看浏览器 Console 的 CSP/CORS 报错。
 
-**CSP / CORS**：`server.py` 已设置 `Access-Control-Allow-Origin: *`。
+**CSP / CORS**：优先使用服务根路径的同源 Dashboard；跨源脚本须配置明确可信的 Origin。
 如果 Codex 脚本运行环境仍拦截，可尝试：
 
 ```bash

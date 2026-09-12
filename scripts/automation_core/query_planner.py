@@ -332,4 +332,3 @@ def plan_query(
     if audit:
         audit.finish(plan, 0)
     return plan
-

@@ -30,7 +30,7 @@ def _get_service() -> MemoryService:
 
 def _scope_backfill(args: argparse.Namespace) -> int:
     wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
-    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
+    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path.home() / ".memory-hub"))).resolve()
     operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(
         datetime.now(timezone.utc), uuid4
     )
@@ -74,10 +74,12 @@ def _search(args: argparse.Namespace) -> int:
         print("search: invalid scope", file=sys.stderr)
         return 2
 
+    # --no-fts means full-text only (no vector): in the unified service the
+    # full-text backend already falls back to rg when no index exists.
     request = SearchRequest(
         query=args.query,
         top=args.top,
-        fuse=args.fuse,
+        fuse=args.fuse and args.fts,
         expand=args.expand,
         scope=args.scope,
         scope_id=args.scope_id,
@@ -128,6 +130,8 @@ def _ask(args: argparse.Namespace) -> int:
             print("== 回答 ==")
             print(ctx.answer)
             print("")
+        else:
+            print(f"answer_status={ctx.answer_status} reason={ctx.answer_error or 'no_context'}")
         print("== 引用页面 ==")
         for r in ctx.results:
             print(f"  - {r.path} — {r.title}")
@@ -135,11 +139,17 @@ def _ask(args: argparse.Namespace) -> int:
 
 
 def _maintain(args: argparse.Namespace) -> int:
-    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, maintain_pipeline, parse_mode
-    from scripts.automation_core.operation import GitBaseline, begin_transaction
-    opts = parse_mode("maintain", sys.argv[2:])
+    from scripts.automation_core.orchestrator import CliUsageError, MaintainStageRunner, maintain_pipeline, parse_mode
+    from scripts.automation_core.operation import AutomationLock, GitBaseline, LockBusy, begin_transaction
+    flags = [flag for name, flag in (("safe", "--safe"), ("no_auto", "--no-auto"),
+             ("apply", "--apply"), ("commit", "--commit")) if getattr(args, name, False)]
+    try:
+        opts = parse_mode("maintain", flags)
+    except CliUsageError as exc:
+        print(f"maintain: {exc}", file=sys.stderr)
+        return exc.exit_code
     wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
-    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
+    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path.home() / ".memory-hub"))).resolve()
     operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
     ctx = OperationContext(
         operation_id=operation_id,
@@ -150,17 +160,33 @@ def _maintain(args: argparse.Namespace) -> int:
         wiki_path=wiki,
         data_path=data,
     )
-    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
-    report = maintain_pipeline(tx, StageRunner())
-    return 0 if report.result in ("committed", "safe") else 1
+    try:
+        lock = AutomationLock.acquire(data, ctx)
+    except LockBusy as exc:
+        print(f"maintain: {exc}", file=sys.stderr)
+        return exc.exit_code
+    try:
+        tx = begin_transaction(ctx, GitBaseline.capture(wiki))
+        report = maintain_pipeline(tx, MaintainStageRunner(commit=opts.commit))
+    finally:
+        lock.release()
+    if report.error:
+        print(f"maintain: {report.error}", file=sys.stderr)
+    return 0 if report.result in ("committed", "applied_no_commit", "safe") else 1
 
 
 def _run(args: argparse.Namespace) -> int:
-    from scripts.automation_core.orchestrator import ModeOptions, StageRunner, run_pipeline, parse_mode
-    from scripts.automation_core.operation import GitBaseline, begin_transaction
-    opts = parse_mode("run", sys.argv[2:])
+    from scripts.automation_core.orchestrator import CliUsageError, RunStageRunner, run_pipeline, parse_mode
+    from scripts.automation_core.operation import AutomationLock, GitBaseline, LockBusy, begin_transaction
+    flags = [flag for name, flag in (("safe", "--safe"), ("no_auto", "--no-auto"),
+             ("apply", "--apply"), ("commit", "--commit")) if getattr(args, name, False)]
+    try:
+        opts = parse_mode("run", flags)
+    except CliUsageError as exc:
+        print(f"run: {exc}", file=sys.stderr)
+        return exc.exit_code
     wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
-    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path(__file__).resolve().parents[1] / "data"))).resolve()
+    data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path.home() / ".memory-hub"))).resolve()
     operation_id = os.environ.get("MEMORY_HUB_OPERATION_ID") or new_operation_id(datetime.now(timezone.utc), uuid4)
     ctx = OperationContext(
         operation_id=operation_id,
@@ -171,9 +197,17 @@ def _run(args: argparse.Namespace) -> int:
         wiki_path=wiki,
         data_path=data,
     )
-    tx = begin_transaction(ctx, GitBaseline.capture(wiki))
-    report = run_pipeline(tx, StageRunner())
-    return 0 if report.result in ("committed", "safe") else 1
+    try:
+        lock = AutomationLock.acquire(data, ctx)
+    except LockBusy as exc:
+        print(f"run: {exc}", file=sys.stderr)
+        return exc.exit_code
+    try:
+        tx = begin_transaction(ctx, GitBaseline.capture(wiki))
+        report = run_pipeline(tx, RunStageRunner(llm=args.llm))
+    finally:
+        lock.release()
+    return 0 if report.result in ("committed", "applied_no_commit", "safe") else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -196,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     search_p.add_argument("--no-fuse", dest="fuse", action="store_false")
     search_p.add_argument("--expand", action="store_true", default=True)
     search_p.add_argument("--no-expand", dest="expand", action="store_false")
+    search_p.add_argument("--no-fts", dest="fts", action="store_false", default=True,
+                          help="skip FTS recall (vector only)")
     search_p.add_argument("--scope", choices=["user", "project", "agent"])
     search_p.add_argument("--scope-id")
     search_p.add_argument("--explain", action="store_true")
@@ -221,11 +257,12 @@ def main(argv: list[str] | None = None) -> int:
     ask_p.set_defaults(handler=_ask)
 
     # maintain
-    maintain_p = subparsers.add_parser("maintain", help="maintain pipeline")
-    maintain_p.add_argument("--safe", action="store_true")
-    maintain_p.add_argument("--no-auto", action="store_true")
-    maintain_p.add_argument("--apply", action="store_true")
-    maintain_p.add_argument("--commit", action="store_true")
+    maintain_p = subparsers.add_parser("maintain", help="maintain pipeline (default: apply and commit)",
+        description="Maintain wiki pages and cross-day clusters. Default: apply and commit; use --safe to preview.")
+    maintain_p.add_argument("--safe", action="store_true", help="preview without changing wiki, index, manifest or Git")
+    maintain_p.add_argument("--no-auto", action="store_true", help="repairs only; requires --apply to write")
+    maintain_p.add_argument("--apply", action="store_true", help="apply repairs in --no-auto mode")
+    maintain_p.add_argument("--commit", action="store_true", help="commit repairs with --no-auto --apply")
     maintain_p.set_defaults(handler=_maintain)
 
     # run

@@ -113,6 +113,7 @@ class AutomationLock:
 class GitBaseline:
     staged: tuple[str, ...]
     unstaged: tuple[str, ...]
+    head: str = ""
 
     @classmethod
     def capture(cls, repo: Path) -> GitBaseline:
@@ -127,9 +128,14 @@ class GitBaseline:
                 ["git", "diff", "--name-only"],
                 cwd=repo, capture_output=True, text=True, check=True
             ).stdout.splitlines()
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo, capture_output=True, text=True, check=False,
+            ).stdout.strip()
             return cls(
                 staged=tuple(sorted(line.strip() for line in out_staged if line.strip())),
                 unstaged=tuple(sorted(line.strip() for line in out_unstaged if line.strip())),
+                head=head,
             )
         except Exception:
             return cls(staged=(), unstaged=())
@@ -150,7 +156,12 @@ class OperationJournal:
         self.baseline = baseline
         self.state: str = "INIT"
         self.checkpoints: list[str] = []
-        self.before_images: dict[str, Path] = {}
+        self.before_images: dict[str, Path | None] = {}
+        self.after_hashes: dict[str, str] = {}
+        self.own_commit_hash: str | None = None
+        self.parent_commit_hash: str | None = None
+        self.own_commit_paths: tuple[str, ...] = ()
+        self.staged_paths: list[str] = []
         self.rollback_order: tuple[str, ...] = ("manifest", "index", "pages")
         self.registered_paths: list[str] = []
         self.tx_dir = operation.data_path / "transactions" / operation.operation_id
@@ -174,17 +185,53 @@ class OperationJournal:
         self.state = name
         self._append_record({"event": "checkpoint", "name": name})
 
+    def record_own_commit(self, repo: Path, commit_hash: str, paths: Sequence[str] = ()) -> None:
+        parents = subprocess.run(
+            ["git", "rev-list", "--parents", "-n", "1", commit_hash],
+            cwd=repo, capture_output=True, text=True, check=True,
+        ).stdout.split()
+        parent = parents[1] if len(parents) > 1 else ""
+        self.own_commit_hash = commit_hash
+        self.parent_commit_hash = parent
+        self.own_commit_paths = tuple(sorted({p.strip() for p in paths if p.strip()}))
+        self._append_record(
+            {"event": "own_commit", "commit": commit_hash, "parent": parent, "paths": list(self.own_commit_paths)}
+        )
+
+    def record_after_images(self, paths: Sequence[Path]) -> None:
+        for path in paths:
+            key = str(path.absolute())
+            digest = _sha256(path)
+            self.after_hashes[key] = digest
+            self._append_record({"event": "after_image", "path": key, "hash": digest})
+
+    def registered_git_paths(self) -> tuple[str, ...]:
+        return tuple(self.registered_paths)
+
+    def record_staged_paths(self, rels: Sequence[str]) -> None:
+        self.staged_paths.extend(rel for rel in rels if rel not in self.staged_paths)
+        self._append_record({"event": "staged_paths", "paths": list(self.staged_paths)})
+
     def save_before_images(self, paths: Sequence[Path]) -> None:
         before_dir = self.tx_dir / "before-images"
         before_dir.mkdir(parents=True, exist_ok=True)
         for path in paths:
-            rel = str(path)
+            rel = str(path.absolute())
+            if rel in self.before_images:
+                continue
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise ValueError(f"Cannot snapshot non-regular file: {path}")
             if path.is_file():
-                dest = before_dir / f"{path.name}.before"
+                dest = before_dir / f"{hashlib.sha256(rel.encode()).hexdigest()}.before"
                 shutil.copy2(str(path), str(dest))
                 os.chmod(str(dest), 0o600)
                 self.before_images[rel] = dest
+                self.registered_paths.append(rel)
                 self._append_record({"event": "before_image", "path": rel, "dest": str(dest)})
+            else:
+                self.before_images[rel] = None
+                self.registered_paths.append(rel)
+                self._append_record({"event": "before_image", "path": rel, "dest": None})
 
     def register_lifecycle(self, plan: Any) -> None:
         self._append_record({"event": "register_lifecycle", "plan": str(plan)})
@@ -192,6 +239,7 @@ class OperationJournal:
     def write_verified_temp(self, target: Path, content: bytes) -> Path:
         temp_file = target.parent / f".{target.name}.tmp"
         temp_file.write_bytes(content)
+        self.record_after_images([temp_file])
         self._append_record({"event": "temp_written", "path": str(target)})
         return temp_file
 
@@ -239,6 +287,8 @@ class CommitReport:
 class RollbackReport:
     success: bool
     restored_paths: tuple[str, ...]
+    restored: bool = True
+    conflict_paths: tuple[str, ...] = ()
 
 
 def _sha256(path: Path) -> str:
@@ -268,6 +318,7 @@ def stage_exact(
     for rel in sorted(verified_paths):
         subprocess.run(["git", "add", "--", rel], cwd=repo, check=True)
         staged_by_op.add(rel)
+    tx.journal.record_staged_paths(sorted(staged_by_op))
     
     cached_out = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
@@ -295,20 +346,117 @@ def commit_exact(
         return CommitReport("not-a-repository", "")
     
     msg = f"chore(wiki): memory-hub maintain {tx.operation.operation_id}"
-    subprocess.run(["git", "commit", "-m", msg], cwd=repo, check=True)
+    proc = subprocess.run(
+        ["git", "commit", "-m", msg],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        # Commit hooks (or anything else) rejected the commit: leave the repo
+        # without this operation's staging. Unstaged files stay as-is so the
+        # failure report reflects the actual workspace state.
+        for rel in tx.journal.staged_paths:
+            subprocess.run(
+                ["git", "restore", "--staged", "--", rel],
+                cwd=repo, check=False, capture_output=True,
+            )
+        raise RuntimeError(f"git commit failed: {proc.stderr.strip()[:300]}")
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo, capture_output=True, text=True, check=True
     ).stdout.strip()
+    tx.journal.record_own_commit(repo, head, stage.cached)
     return CommitReport("committed", head)
 
 
-def rollback_transaction(tx: TransactionContext) -> RollbackReport:
+def rollback_transaction(tx: TransactionContext, *, force: bool = False) -> RollbackReport:
     restored = []
+    skipped_conflicts: list[str] = []
+    if "STAGE_COMMITTED" in tx.journal.checkpoints and not force:
+        return RollbackReport(success=True, restored_paths=())
+    externally_modified: set[str] = set()
+    for path, expected in tx.journal.after_hashes.items():
+        target = Path(path)
+        before = tx.journal.before_images.get(path)
+        before_hash = _sha256(before) if before else ""
+        if target.is_symlink() or _sha256(target) not in (expected, before_hash):
+            externally_modified.add(path)
+    if tx.journal.own_commit_hash or tx.journal.before_images:
+        repo = tx.operation.wiki_path
+        if (repo / ".git").exists():
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo, capture_output=True, text=True, check=False,
+            ).stdout.strip()
+            if tx.journal.own_commit_hash and head == tx.journal.own_commit_hash:
+                own_conflicts = [str((repo / rel).absolute()) for rel in tx.journal.own_commit_paths
+                                 if str((repo / rel).absolute()) in externally_modified]
+                if own_conflicts:
+                    return RollbackReport(False, (), False, tuple(own_conflicts))
+                # Move HEAD back to the recorded parent without touching index or
+                # worktree; committed-path restore below undoes the operation's
+                # own tree changes, so unrelated staged work is preserved.
+                if tx.journal.parent_commit_hash:
+                    subprocess.run(["git", "update-ref", "HEAD", tx.journal.parent_commit_hash, head],
+                                   cwd=repo, check=True)
+                else:
+                    subprocess.run(["git", "update-ref", "-d", "HEAD", head], cwd=repo, check=True)
+                for rel in tx.journal.own_commit_paths:
+                    in_parent = subprocess.run(
+                        ["git", "cat-file", "-e", f"HEAD:{rel}"],
+                        cwd=repo, check=False, capture_output=True,
+                    ).returncode == 0
+                    if in_parent:
+                        subprocess.run(
+                            ["git", "checkout", "HEAD", "--", rel],
+                            cwd=repo, check=False, capture_output=True,
+                        )
+                    else:
+                        subprocess.run(
+                            ["git", "rm", "-f", "--", rel],
+                            cwd=repo, check=False, capture_output=True,
+                        )
+            elif head:
+                if tx.journal.own_commit_hash:
+                    # A later commit includes our committed tree. Restoring its
+                    # pages/index/manifest would leave history and files divergent.
+                    conflicts = tuple(str((repo / rel).absolute()) for rel in tx.journal.own_commit_paths)
+                    return RollbackReport(False, (), False, conflicts or ("git-head",))
+                # Later history exists on top of (or after) the operation:
+                # files that subsequent commits changed must not be
+                # overwritten by before images.
+                base = tx.journal.own_commit_hash or tx.journal.baseline.head
+                diff = subprocess.run(
+                    ["git", "diff", "--name-only", base, "HEAD"],
+                    cwd=repo, capture_output=True, text=True, check=False,
+                )
+                for line in diff.stdout.splitlines():
+                    rel = line.strip()
+                    if rel:
+                        changed = repo / rel
+                        externally_modified.add(str(changed.absolute()))
+                        externally_modified.add(str(changed.resolve()))
+        for rel in tx.journal.staged_paths:
+            if str((repo / rel).absolute()) in externally_modified:
+                continue
+            subprocess.run(
+                ["git", "restore", "--staged", "--", rel],
+                cwd=repo, check=False, capture_output=True,
+            )
     # Reverse restoration: manifest -> index -> pages
     for orig_path, before_path in reversed(list(tx.journal.before_images.items())):
+        if orig_path in externally_modified or str(Path(orig_path).resolve()) in externally_modified:
+            skipped_conflicts.append(orig_path)
+            continue
         target = Path(orig_path)
-        if before_path.is_file():
+        if before_path is None:
+            target.unlink(missing_ok=True)
+            restored.append(orig_path)
+        elif before_path.is_file():
             shutil.copy2(str(before_path), str(target))
             restored.append(orig_path)
-    return RollbackReport(success=True, restored_paths=tuple(restored))
+    return RollbackReport(
+        success=not skipped_conflicts,
+        restored_paths=tuple(restored),
+        restored=not skipped_conflicts,
+        conflict_paths=tuple(skipped_conflicts),
+    )

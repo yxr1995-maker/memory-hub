@@ -17,3 +17,30 @@ evaluation.md
 mem0-report.md
 mem0-tech-notes.md
 .worktrees/
+
+# Runtime state produced by local runs (never source)
+.since
+.opencode/
+data/
+ui/node_modules/
+ui/dashboard/node_modules/
+
+# Keep experience evaluator source and synthetic development fixtures reviewable.
+!evaluation/
+evaluation/*
+!evaluation/experience_v1/
+evaluation/experience_v1/*
+!evaluation/experience_v1/development.jsonl
+!evaluation/experience_v1/harness.py
+!evaluation/experience_v1/runner.py
+!evaluation/experience_v1/actions.py
+!evaluation/experience_v1/m2.py
+!evaluation/experience_v1/diagnostics.py
+!evaluation/experience_v1/continuity.py
+!evaluation/experience_v1/continuity-suite.json
+!evaluation/experience_v1/paired_host.py
+!evaluation/experience_v1/paired-host-suite.json
+
+# Frozen experiment payloads: multi-GB runtime evidence (cells, snapshots, sqlite).
+# Kept on disk for audit; deliberately not part of the source tree.
+docs/evidence/

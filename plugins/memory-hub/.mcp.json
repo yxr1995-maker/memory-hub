@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "memory-hub": {
+      "type": "stdio",
+      "command": "./mcp/launch.sh",
+      "cwd": "."
+    }
+  }
+}

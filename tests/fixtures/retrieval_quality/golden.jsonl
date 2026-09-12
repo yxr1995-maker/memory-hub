@@ -1,0 +1,4 @@
+{"q":"Deploymarker","expected":"current.md","scope":"project","scope_id":"alpha","type":"scope"}
+{"q":"Oldmarker","expected":"current.md","scope":"project","scope_id":"alpha","type":"lifecycle"}
+{"q":"Proposalmarker","expected":"candidate.md","scope":"project","scope_id":"alpha","type":"candidate"}
+{"q":"Absentmarker","expected":null,"scope":"project","scope_id":"alpha","type":"no_answer"}

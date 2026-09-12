@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$HUB_DIR/staging"
+STAGING="${MEMORY_HUB_STAGING:-$HUB_DIR/staging}"
 PAGES_DIR="$STAGING/pages"
 source "$HUB_DIR/scripts/lib.sh"
 timing_begin
@@ -124,6 +124,7 @@ fi
 
 # —— 落盘 ——
 COPIED=0
+TRACKED=()
 mkdir -p "$STAGING/published"
 LOG_ENTRIES=""
 for f in "${VALID_PAGES[@]}"; do
@@ -152,6 +153,7 @@ for f in "${VALID_PAGES[@]}"; do
       cp "$f" "$TARGET"
     fi
     mv "$f" "$STAGING/published/$SLUG"
+    TRACKED+=("$SLUG|$DIR|$REL_TARGET|$STAT")
     COPIED=$((COPIED + 1))
     echo "publish: + $DIR/$SLUG (memoryhub, 覆盖更新)"
   else
@@ -162,6 +164,7 @@ for f in "${VALID_PAGES[@]}"; do
     mkdir -p "$WIKI/$DIR"
     cp "$f" "$TARGET"
     mv "$f" "$STAGING/published/$SLUG"
+    TRACKED+=("$SLUG|$DIR||$STAT")
     COPIED=$((COPIED + 1))
     echo "publish: + $DIR/$SLUG"
     if ! grep -qF "发布 $SLUG" "$WIKI/log.md" 2>/dev/null; then
@@ -202,6 +205,8 @@ if [[ "$COPIED" -gt 0 ]]; then
   rm -f "$INDEX_FILE"
 fi
 
+printf '%s\n' "${TRACKED[@]:-}" | sed '/^$/d' > "$STAGING/.published-this-run"
+echo "publish: MH_PUBLISHED=${#TRACKED[@]}"
 echo "publish: 完成，发布 $COPIED 页; index.md / log.md 已更新"
 echo "publish: gbrain 索引源即 ~/llm-wiki，新页会被自动纳入检索"
 

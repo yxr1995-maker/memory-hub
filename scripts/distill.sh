@@ -63,7 +63,7 @@ llm_summary() {
     --arg content "$content" \
     '{model:$model, messages:[{role:"system",content:$sys},{role:"user",content:$content}], temperature:0.2}')"
   # 错误响应检测：只看 .error 字段（HTTP 错误响应结构），不匹配内容关键词——避免摘要内容恰好提到"限流/prevent abuse"等词时被误伤降级
-  curl -s --max-time 30 -H 'Content-Type: application/json' -d "$payload" "$PROXY/chat/completions" \
+  curl -s --max-time 90 -H 'Content-Type: application/json' -d "$payload" "$PROXY/chat/completions" \
     | jq -r 'if .error then "" else (.choices[0].message.content // "") end' 2>/dev/null || true
 }
 

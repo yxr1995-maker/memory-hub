@@ -1,0 +1,575 @@
+{
+  "protocol": "continuity-synthetic-20260910",
+  "scope": "single-response memory-dependent diagnostic; not Desktop, full agent evidence expansion, or market benefit",
+  "exposure": "Tasks authored before model outputs. Engineering mechanisms use the previously tested executor; novel synthetic project histories and creative briefs. Not a hidden benchmark.",
+  "gate": {
+    "C_semantic_improvements_over_B": 2,
+    "engineering_C_at_least_B": true,
+    "creative_intent_C_at_least_B": true,
+    "no_factual_regression": true,
+    "unknown_billing": "no financial-efficiency claim"
+  },
+  "episodes": [
+    {
+      "key": "jichuan",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "霁川 日报更新事故",
+        "narrative": "合成回放：日报输出曾完全由生成器持有。最初采用覆盖策略。后来现场记录确认，输出已被人工编辑成USER_EDIT，拟写入NEW。",
+        "explicit_reason": "旧约定允许直接覆盖生成文件。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "engineering",
+          "project": "jichuan"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/jichuan"
+          }
+        ],
+        "artifacts": [],
+        "preconditions": {
+          "target": "霁川日报",
+          "require": {
+            "owned": true
+          },
+          "exclude": {
+            "user_modified": true
+          }
+        }
+      },
+      "revisions": [
+        {
+          "patch": {
+            "explicit_reason": "最新复核：人工编辑已存在，输出不再可直接覆盖；保留USER_EDIT并报告冲突。",
+            "preconditions": {
+              "target": "霁川日报",
+              "require": {
+                "user_modified": true
+              }
+            },
+            "conditions": {
+              "task_kind": "engineering",
+              "project": "jichuan",
+              "user_modified": true
+            }
+          },
+          "reason": "Synthetic validator corrected ownership assumption."
+        }
+      ]
+    },
+    {
+      "key": "qingshi",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "青石 沙盒重置约定",
+        "narrative": "合成演练确认，青石沙盒文件全部由测试生成，没有用户编辑或外部依赖，可一次性丢弃。目标写为NEW。曾套用正式报告备份流程，增加无用副本。",
+        "explicit_reason": "在这个已确认可丢弃的沙盒，直接重置为NEW；不保留旧文件、不创建备份。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "engineering",
+          "project": "qingshi"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/qingshi"
+          }
+        ],
+        "artifacts": [],
+        "preconditions": {
+          "target": "青石沙盒",
+          "require": {
+            "owned": true,
+            "disposable": true
+          },
+          "exclude": {
+            "external_dependency": true
+          }
+        }
+      }
+    },
+    {
+      "key": "zhexian",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "折线 报告并发修订",
+        "narrative": "合成回放：读取报告v1后，写入前出现USER_LATE_EDIT。直接写入会丢掉编辑；一律拒绝写又阻止正常刷新。已保存读取时的SHA256。",
+        "explicit_reason": "采用写入时对比读取哈希的策略；不一致保留并报冲突，一致写NEW。验证必须包含有并发及无并发两种情况。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "engineering",
+          "project": "zhexian"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/zhexian"
+          }
+        ],
+        "artifacts": [],
+        "preconditions": {
+          "target": "折线报告",
+          "require": {
+            "hash_available": true
+          }
+        }
+      }
+    },
+    {
+      "key": "yinshan",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "银杉 迁移恢复演练",
+        "narrative": "合成数据库重要记录id为1和2。迁移试验发现，空占位副本不能恢复行。采用SQLite备份API生成一致性副本，再读取副本两行验证。",
+        "explicit_reason": "迁移前需要能恢复全部行的一致性副本，用SQLite备份API。文件存在或大小非零不代表可恢复。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "engineering",
+          "project": "yinshan"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/yinshan"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "weixi",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "微栖 散步文案反馈",
+        "narrative": "合成评审比较过两稿。A：你不带它出去，就是不够爱它。B：把门打开，给今天多一点一起走走的时间。评审选B。",
+        "explicit_reason": "保留一起出门的邀请和具体生活画面，避免用愧疚或责任压力迫使购买；这是本系列的改稿理由，不是所有品牌的永久偏好。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "creative",
+          "project": "weixi"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/weixi"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "heye",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "禾页 展台表达修订",
+        "narrative": "早期合成简报偏向慢节奏、柔和陪伴。旧稿：愿每一段散步，都被温柔照看。后来负责人调整了这次展台方案。",
+        "explicit_reason": "早期约定：保持轻柔舒缓，不使用直接邀约。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "creative",
+          "project": "heye"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/heye"
+          }
+        ],
+        "artifacts": []
+      },
+      "revisions": [
+        {
+          "patch": {
+            "explicit_reason": "最近确认：本次展台用直白、有行动感的邀请，可以请人到台前查看。不用夸张叹号，不承诺未给定优惠或效果；不沿用早期舒缓口号。"
+          },
+          "reason": "Synthetic campaign brief changed; earlier tone no longer applies to this event."
+        }
+      ]
+    },
+    {
+      "key": "qinghe",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "清禾 通勤文案改稿",
+        "narrative": "合成评审选了B稿，但记录没有保留A/B全文或选择理由；后来有人猜测负责人永久偏爱押韵。这只是推测，未获确认。",
+        "explicit_reason": null,
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "creative",
+          "project": "qinghe"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/qinghe"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "yunlan",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "云岚 画面修改复核",
+        "narrative": "合成剪辑第6秒：狗在左侧，包装在右侧，背景有两盆植物。初稿记录误写为移动包装，最新复核纠正了这个抄录错误。",
+        "explicit_reason": "旧抄录：将包装移动到左侧，并移除两盆植物。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "creative",
+          "project": "yunlan"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/yunlan"
+          }
+        ],
+        "artifacts": []
+      },
+      "revisions": [
+        {
+          "patch": {
+            "explicit_reason": "最新合成评审仅要求移除一盆植物。第6秒狗保持左侧，包装保持右侧；修改归因本次评审，额外创意另标建议。"
+          },
+          "reason": "Synthetic reviewer corrected the earlier transcription."
+        }
+      ]
+    },
+    {
+      "key": "rain",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "雨量 传感器校准",
+        "narrative": "无关合成项目记录。",
+        "explicit_reason": "更换探头后再次校准。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "other",
+          "project": "rain"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/rain"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "tea",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "茶室 菜单排序",
+        "narrative": "无关合成项目记录。",
+        "explicit_reason": "按饮品温度排列。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "other",
+          "project": "tea"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/tea"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "map",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "海图 图例修改",
+        "narrative": "无关合成项目记录。",
+        "explicit_reason": "海岸线保持连续。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "other",
+          "project": "map"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/map"
+          }
+        ],
+        "artifacts": []
+      }
+    },
+    {
+      "key": "paper",
+      "payload": {
+        "schema_version": 1,
+        "collection_id": "fixture",
+        "event_kind": "episode",
+        "synthetic": true,
+        "goal": "纸箱 仓位盘点",
+        "narrative": "无关合成项目记录。",
+        "explicit_reason": "箱号与仓位分开记录。",
+        "source_kind": "synthetic_fixture",
+        "conditions": {
+          "task_kind": "other",
+          "project": "paper"
+        },
+        "outcome": {
+          "status": "observed",
+          "verification": "synthetic_fixture_only"
+        },
+        "source_refs": [
+          {
+            "kind": "fixture",
+            "ref": "continuity/paper"
+          }
+        ],
+        "artifacts": []
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "jichuan-new-report",
+      "query": "霁川 日报",
+      "task_text": "霁川日报需要再次写入候选NEW。当前现场状态沿用最近复核记录。请依据历史更正决定处理方式。允许动作：preserve（保留并报告冲突）、overwrite（写NEW）。",
+      "kind": "engineering_action",
+      "action_case": "edited",
+      "conditions": {
+        "owned": true,
+        "user_modified": true
+      },
+      "rubric": {
+        "scope": "actual postconditions from the fixed synthetic executor",
+        "action_case": "edited",
+        "reference_source": "latest episode for the same project",
+        "no_memory_abstention": "report separately, do not treat missing history as a poor decision"
+      }
+    },
+    {
+      "task_id": "qingshi-new-run",
+      "query": "青石 沙盒",
+      "task_text": "青石沙盒进行下一次同条件试验，需写入NEW；所有权、可丢弃性和外部依赖检查与演练记录一致。按已验证约定选择reset、backup_and_reset或preserve。",
+      "kind": "engineering_action",
+      "action_case": "scratch",
+      "conditions": {
+        "owned": true,
+        "disposable": true,
+        "external_dependency": false
+      },
+      "rubric": {
+        "scope": "actual postconditions from the fixed synthetic executor",
+        "action_case": "scratch",
+        "reference_source": "latest episode for the same project",
+        "no_memory_abstention": "report separately, do not treat missing history as a poor decision"
+      }
+    },
+    {
+      "task_id": "zhexian-new-cycle",
+      "query": "折线 报告",
+      "task_text": "折线报告开始下一轮刷新，候选NEW，继续使用记录中已经验证的并发处理约定。允许动作：conditional_update（写时比对已记录哈希）、overwrite、preserve。请让有并发和无并发两种情况都正确。",
+      "kind": "engineering_action",
+      "action_case": "race",
+      "conditions": {
+        "hash_available": true
+      },
+      "rubric": {
+        "scope": "actual postconditions from the fixed synthetic executor",
+        "action_case": "race",
+        "reference_source": "latest episode for the same project",
+        "no_memory_abstention": "report separately, do not treat missing history as a poor decision"
+      }
+    },
+    {
+      "task_id": "yinshan-new-server",
+      "query": "银杉 迁移",
+      "task_text": "银杉记录库准备迁移到另一台合成测试服务器，重要行和一致性要求延续上次演练。依照已有恢复证据选择sqlite_backup（SQLite备份API）、empty_backup（创建空文件）或skip。",
+      "kind": "engineering_action",
+      "action_case": "backup",
+      "conditions": {},
+      "rubric": {
+        "scope": "actual postconditions from the fixed synthetic executor",
+        "action_case": "backup",
+        "reference_source": "latest episode for the same project",
+        "no_memory_abstention": "report separately, do not treat missing history as a poor decision"
+      }
+    },
+    {
+      "task_id": "weixi-new-product",
+      "query": "微栖 散步",
+      "task_text": "为合成品牌微栖的新款拾便袋「走走」写35至65字文案。已知事实只有每卷15只、带撕线。面向晚饭后出门遛狗的用户，继承此前评审明确的改稿理由，用新的句子，只交付文案。",
+      "kind": "creative_copy",
+      "rubric": {
+        "facts": [
+          "走走",
+          "每卷15只",
+          "带撕线"
+        ],
+        "intent": "具体晚饭后遛狗场景、一起出门的邀请、不以愧疚或责任压力促销；继承理由而非照抄B稿",
+        "forbidden_claims": [
+          "未给出的环保、降解、承重、气味或防漏承诺",
+          "把一次系列反馈包装为永久人格偏好"
+        ]
+      }
+    },
+    {
+      "task_id": "heye-new-display",
+      "query": "禾页 展台",
+      "task_text": "为合成品牌禾页的展台产品「轻杯」写35至65字文案：容量280毫升、带盖。负责人要求延续最近确认的展台表达方案，其他事实未提供。只交付成品文案。",
+      "kind": "creative_copy",
+      "rubric": {
+        "facts": [
+          "轻杯",
+          "280毫升",
+          "带盖"
+        ],
+        "intent": "使用最近修订的直白、有行动感展台邀请，不回到早期慢节奏口号；不用夸张叹号",
+        "forbidden_claims": [
+          "无来源优惠、保温、防漏、材质认证、赠品",
+          "沿用已撤回的轻柔无邀约要求"
+        ]
+      }
+    },
+    {
+      "task_id": "qinghe-new-bag",
+      "query": "清禾 通勤",
+      "task_text": "合成品牌清禾的通勤收纳袋「小格」有拉链、容量2升。写35至65字新文案。可参考历史选稿记录；当前简报明确要求具体描述地铁通勤收纳，不强求押韵。不要添产品事实，只交付文案。",
+      "kind": "creative_copy",
+      "rubric": {
+        "facts": [
+          "小格",
+          "拉链",
+          "2升"
+        ],
+        "intent": "具体适配地铁通勤；没有理由的旧选稿不能产生永久押韵偏好；不得虚构旧B稿或评审理由",
+        "forbidden_claims": [
+          "无来源防水、抗磨、尺寸、隔层数、容量效果保证",
+          "永久押韵偏好、虚构评审原话"
+        ]
+      }
+    },
+    {
+      "task_id": "yunlan-final-notes",
+      "query": "云岚 画面",
+      "task_text": "请依据云岚最近一次画面复核，整理第6秒修改记录。此次没有新增改动，画面元素和数量以复核记录为准。只写已确认的修改与来源，若另有创意须标为建议。",
+      "kind": "creative_copy",
+      "rubric": {
+        "facts": [
+          "第6秒",
+          "移除一盆植物",
+          "狗左侧",
+          "包装右侧",
+          "本次评审"
+        ],
+        "intent": "采用更正后的数量与左右位置，明确来源；额外建议与必做项分开",
+        "forbidden_claims": [
+          "旧记录中移除两盆、移动包装到左侧",
+          "未提供的时间戳、执行完成状态、其他新增修改"
+        ]
+      }
+    }
+  ],
+  "review_protocol": {
+    "reviewers": 2,
+    "blind_groups": true,
+    "intent_scale": {
+      "1": "违背目标或缺少关键结果",
+      "2": "多处不适配",
+      "3": "基本满足但表达/执行记录明显欠缺",
+      "4": "准确且可用",
+      "5": "准确且表达出色"
+    },
+    "facts": "pass/fail/unknown; claim-level citations required; ordinary metaphors are not specifications; invented features, mechanisms, guarantees, timestamps or user feedback fail",
+    "counted_improvements": "Per task over B, not over A. Engineering: C actual postconditions pass and B fails for a different declared action, not format/transport only. Creative: both reviewers agree C has no factual error and C improves facts without lower intent, or both pass facts and both reviewers score C intent at least one point higher. Count distinct tasks once.",
+    "unknown_handling": "Missing transport/review/history stays unknown; no zero billing inference; A missing-history abstention reported separately",
+    "free_call_cap": 24,
+    "retry_cap": 0,
+    "max_output_tokens_per_call": 1200,
+    "same_instruction": "All groups receive identical task text/current conditions/system instructions; only history varies",
+    "limitations": [
+      "Single model and response per task; no proof of broad generalization or causal effect",
+      "Engineering executor tests prebuilt actions, not generated code changes",
+      "No natural tool invocation or second-stage read_evidence in this diagnostic",
+      "No-market or user-behavior validation"
+    ]
+  }
+}

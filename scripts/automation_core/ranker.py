@@ -25,6 +25,8 @@ class RecallHit:
     path: str
     score: float
     rank: int = 1
+    abstract: str = ""
+    content: str = ""
 
 
 @dataclass(frozen=True)
@@ -162,13 +164,11 @@ def accumulate_rrf(
 ) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
     for source_key, hits in recalls.items():
-        weight = 1.0
-        if source_key.startswith("expansion_") and source_key in weights:
-            weight = weights[source_key]
-        elif source_key.startswith("original") and "original" in weights:
-            weight = weights["original"]
-        elif source_key in weights:
-            weight = weights[source_key]
+        # Channel suffixes must not bypass the query group's confidence budget.
+        group_key = re.sub(r"_(fts|vec)$", "", source_key)
+        weight = weights.get(group_key, 0.0)
+        if weight <= 0:
+            continue
 
         for index, hit in enumerate(hits):
             rank = hit.rank if hit.rank > 0 else (index + 1)
@@ -284,4 +284,3 @@ def render_human(results: Sequence[SearchResult]) -> str:
     for r in results:
         lines.append(f"[{r.score:.3f}] {r.path}")
     return "\n".join(lines)
-

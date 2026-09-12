@@ -18,12 +18,16 @@
           search (FTS5/rg/fuse)  inject (AGENTS.md)  status       watch（定时）
 ```
 
+## Codex 原生自动记忆
+
+原生集成通过插件 Hooks 调用本地 FTS 召回和增量采集，后台 worker 使用既有模型网关整理。自动发布默认关闭；须完成 Desktop 与 CLI 的隔离验收后才能开启。配置、状态与恢复步骤见 [原生集成说明](docs/codex-native-memory.md)。
+
 ## 快速开始
 
 ```bash
-./memory-hub.sh run              # 全链路 dry-run（安全预览，不写知识库）
-./memory-hub.sh run --apply      # 真正发布到 ~/llm-wiki + 更新 index/log
-./memory-hub.sh run --apply --llm  # 发布时用本地免费模型生成 AI 摘要
+./memory-hub.sh run --safe       # 安全预览，不采集、不写知识库、不提交
+./memory-hub.sh run              # 默认应用完整流水线并提交实际改动
+./memory-hub.sh run --llm        # 额外调用配置的模型生成摘要（可能访问外部服务）
 ```
 
 ## 命令
@@ -47,7 +51,7 @@
 | `metrics` | Prometheus 文本输出（兼容 node_exporter textfile）：即时统计 + `~/.memory-hub/timings.tsv` 阶段耗时（capture/distill/publish/index/embed 的 count/sum/last） |
 | `serve [--port 8787]` | REST 查询服务（stdlib，零依赖）：`/health` `/status` `/search?q=&top=&expand=` `/ask?q=` `/metrics`，供外部 agent 查询知识库/向量索引 |
 | `watch` | 每 60 秒 capture → distill 循环，Ctrl-C 退出 |
-| `run [--apply] [--llm]` | 一键全链路 |
+| `run [--safe] [--no-auto] [--apply] [--llm]` | 一键全链路；默认 auto/apply/commit，`--safe` 只预览，`--no-auto` 需显式 `--apply` 才写入 |
 
 ## 特性来源（2026-08-10 调研）
 
@@ -79,6 +83,29 @@
 
 ## 安全边界
 
-- 发布默认 dry-run；永不覆盖已存在页面；不删除任何知识库文件。
+- 单独 `publish` 默认 dry-run；`run` 和独立 `maintain` 默认应用改动并提交，预览必须加 `--safe`。`run` 中的维护阶段仍标记为 skipped，完整维护通过独立 `maintain` 执行。候选冲突按显式处理规则执行。
 - AI 生成内容一律标 ⚠️待核实；`inject` 默认只输出 stdout，不写任何文件。
-- 只写 `queries/` 等时间戳页，人工策展的 entities/concepts 页面不受管道影响。
+- 生成页与自动维护应在操作报告中列出；实际提交仅包含该操作拥有的路径，已有用户改动必须保留。
+
+独立维护用法：
+
+```bash
+./memory-hub.sh maintain --safe                 # 预览，不改 wiki、索引、manifest、归档或 Git
+./memory-hub.sh maintain                        # 应用维护和跨日聚类，精确提交
+./memory-hub.sh maintain --no-auto              # 只预览页面修复
+./memory-hub.sh maintain --no-auto --apply      # 只应用页面修复，不聚类、不提交
+./memory-hub.sh maintain --no-auto --apply --commit
+```
+
+`maintain` 按验证、页面/lifecycle 写入、单次索引切换、校验、manifest、归档、精确提交的顺序执行。当前页面修复范围为补齐缺失的 `created` / `updated`（从文件修改时间推定）；跳过 Git 已修改、未跟踪以及 raw/archive 页面。跨日聚类使用本地字符相似度，自动内容带待核实标记；不会仅凭标题相似就废弃旧页。旧的全库死链修复、链接回填和真实 embedding 接入尚不属于这个实现。
+
+预览仍可写诊断报告和 journal。`run` 与 `maintain` 共用 `$MEMORY_HUB_DATA/locks/automation.lock`；锁占用退出 75，已有暂存改动时安全失败。报告位于 `$MEMORY_HUB_DATA/reports/latest-operation.json`，无变化或非 Git 知识库不会宣称产生提交。消费记录位于 `$MEMORY_HUB_DATA/manifests/cluster-observations-v1.json`，兼容读取旧的 `cluster-manifest.json`，用于重复执行时避免重复发布。仅完整消费的观察文件会归档；失败报告的 `stage_data.rollback` 标明恢复是否成功，有冲突时保留外部修改并报告恢复未完成。
+
+## 验证与升级验收
+
+运行测试前按 `requirements-test.txt` 准备隔离环境。CI 使用 pytest 收集函数式与 unittest 测试，并执行脚本式回归；Bash 语法逐文件检查。生产流水线验收使用临时 Git 知识库和合成会话，不修改真实记忆。
+
+- 评测必须真的运行：无效题库、检索错误、双零命中不能作为通过证据。报告应绑定代码、题库、索引与参数。
+- 排序按查询组应用权重，FTS/向量通道不能绕过扩词置信度。
+- `ask` JSON 提供 `answer_status`（`answered` / `no_context` / `unavailable`）与 `answer_error`。`MEMORY_HUB_ASK_TIMEOUT` 控制模型超时，默认 15 秒，允许大于 0 且不超过 120 秒。错误仅返回分类，不回显提供方凭据或响应。
+- CLI、REST、MCP 的检索和问答共用 `MemoryService`；Markdown 是事实源，SQLite 为可重建索引。
