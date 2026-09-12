@@ -113,7 +113,7 @@ Rollback: remove only the synthetic workspace's `mcp_servers.memory-hub` and `pl
 
 ## Completed M2 comparison (2026-09-12)
 
-A complete 36-session A/B/C comparison ran on the free SenseNova route (`sensenova/sensenova-6.8-flash-lite`) with zero transport errors, per-cell model-route audits, an independent execution audit and two structurally validated blind reviews from different model families. Outcome: engineering and negative-transfer tasks ceilinged for every group; creative intent median was C=5.0 vs B=5.0 under one reviewer and C=4.0 vs B=5.0 under the other; no two checkable improvements over B. The M2 gate is not passed, ordinary retrieval stays in place, and no promotion is implied. Evidence: docs/evidence/experience-v1/m2-sensenova-20260912/ (交付记录.md, gate-result.json, execution-audit.json, review-a/b.json).
+A complete 36-session A/B/C comparison ran on the free SenseNova route (`sensenova/sensenova-6.8-flash-lite`) with zero transport errors, per-cell model-route audits, an independent execution audit and two structurally validated blind reviews from different model families. Outcome: engineering and negative-transfer tasks ceilinged for every group; creative intent median was C=5.0 vs B=5.0 under one reviewer and C=4.0 vs B=5.0 under the other; no two checkable improvements over B. The frozen comparison did not meet the M2 exit criteria. On 2026-09-12 the owner decided to pass M2 anyway; that pass is recorded as a product decision, M3 (single-workspace daily use) is unblocked but not enabled, and ordinary retrieval stays the default. Evidence: docs/evidence/experience-v1/m2-sensenova-20260912/ (交付记录.md, gate-result.json, execution-audit.json, review-a/b.json).
 
 ## Frozen M2 diagnostic
 

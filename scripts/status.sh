@@ -63,8 +63,13 @@ else
   echo "claude-mem: 未安装/不可用"
 fi
 # 5. 本地 LLM 代理
-if curl -s --max-time 2 http://127.0.0.1:10100/v1/models >/dev/null 2>&1; then
-  echo "LLM代理(127.0.0.1:10100): 可用"
+PROXY_BASE="${OPENCODEX_URL:-http://127.0.0.1:10100/v1}"
+PROXY_LABEL="${PROXY_BASE#http://}"
+PROXY_LABEL="${PROXY_LABEL%/v1}"
+# Any HTTP answer means the proxy is up; only a failed connection counts as down.
+PROXY_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$PROXY_BASE/models" 2>/dev/null || echo 000)"
+if [[ "$PROXY_CODE" =~ ^[1-5][0-9][0-9]$ ]]; then
+  echo "LLM代理($PROXY_LABEL): 可用 (http $PROXY_CODE)"
 else
-  echo "LLM代理(127.0.0.1:10100): 不可用"
+  echo "LLM代理($PROXY_LABEL): 不可用"
 fi
