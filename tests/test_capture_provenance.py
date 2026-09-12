@@ -292,6 +292,51 @@ def test_parse_page_block_scalar_keeps_dash_prefixed_content(tmp_path: Path) -> 
     assert page.frontmatter["virality_score"] == "70"
 
 
+def test_parse_page_accepts_nested_mapping_blocks(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "nested.md",
+        b"---\ntype: concept\ntitle: T\nembed_skip:\n  bytes: 1888693\n  reason: oversized\ncontent_flag:\n  bytes: 12\n  detail: 'PAGE_OVERSIZED'\nhidden: true\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["embed_skip"] == {"bytes": "1888693", "reason": "oversized"}
+    assert page.frontmatter["content_flag"] == {"bytes": "12", "detail": "PAGE_OVERSIZED"}
+    assert page.frontmatter["hidden"] is True
+
+
+def test_parse_page_keeps_literal_block_chomping_variant(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "keep.md",
+        b"---\ntitle: T\nbody_text: |+\n  line one\n\nstatus: fresh\n---\nbody\n",
+    )
+    page = parse_page(path)
+    assert page.frontmatter["body_text"] == "line one\n"
+    assert page.frontmatter["status"] == "fresh"
+
+
+def test_patch_frontmatter_replaces_block_scalar_value_without_leftovers(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "patch-block.md",
+        b"---\ntitle: T\nsource_quote: >-\n  old folded text\nupdated: '2026-01-01'\n---\nbody\n",
+    )
+    rendered = patch_frontmatter(parse_page(path), {"source_quote": "new text"})
+    assert b"old folded text" not in rendered
+    assert b"source_quote: 'new text'" in rendered
+
+
+def test_patch_frontmatter_consumes_nested_mapping_when_key_changes(tmp_path: Path) -> None:
+    path = _write_page(
+        tmp_path,
+        "patch-nested.md",
+        b"---\ntitle: T\nembed_skip:\n  bytes: 1\n  reason: oversized\nstatus: fresh\n---\nbody\n",
+    )
+    rendered = patch_frontmatter(parse_page(path), {"embed_skip": ""})
+    assert b"reason: oversized" not in rendered
+    assert b"status: fresh" in rendered
+
+
 def test_parse_page_accepts_an_empty_frontmatter_block(tmp_path: Path) -> None:
     page = parse_page(_write_page(tmp_path, "empty.md", b"---\n---\nbody\n"))
     assert page.frontmatter == {}
