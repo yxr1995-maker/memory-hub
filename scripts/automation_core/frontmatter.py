@@ -8,6 +8,8 @@ from pathlib import Path
 from .schema import PageDocument
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$")
+_ITEM = re.compile(r"^([ \t]*)-(?:[ \t]+(.*))?$")
+_BLOCK_SCALAR = frozenset({"|", ">", "|-", "|+", ">-", ">+"})
 
 
 def _decode_scalar(value: str) -> object:
@@ -23,6 +25,29 @@ def _decode_scalar(value: str) -> object:
     if value.startswith('"') and value.endswith('"'):
         return value[1:-1]
     return value
+
+
+def _read_block(
+    lines: tuple[str, ...], cursor: int, indicator: str, base_indent: int
+) -> tuple[object, int]:
+    """Consume an indented YAML block scalar; stop at the first shallower line."""
+    literal = indicator.startswith("|")
+    block: list[str] = []
+    while cursor < len(lines):
+        candidate = lines[cursor]
+        if not candidate.strip():
+            block.append("")
+            cursor += 1
+            continue
+        indent = len(candidate) - len(candidate.lstrip())
+        if indent <= base_indent:
+            break
+        block.append(candidate.strip())
+        cursor += 1
+    while block and not block[-1]:
+        block.pop()
+    folded = "\n".join(block) if literal else " ".join(part for part in block if part)
+    return folded, cursor
 
 
 def parse_page(path: Path) -> PageDocument:
@@ -55,15 +80,28 @@ def parse_page(path: Path) -> PageDocument:
             raise ValueError(f"duplicate frontmatter key: {key}")
         values: list[object] = []
         cursor = index + 1
-        while cursor < len(lines) and lines[cursor].startswith("  - "):
-            values.append(_decode_scalar(lines[cursor][4:]))
-            cursor += 1
-        if values:
-            if raw.strip():
-                raise ValueError(f"frontmatter key mixes scalar and list: {key}")
-            frontmatter[key] = values
+        key_indent = len(line) - len(line.lstrip())
+        if raw.strip() in _BLOCK_SCALAR:
+            frontmatter[key], cursor = _read_block(lines, cursor, raw.strip(), key_indent)
         else:
-            frontmatter[key] = _decode_scalar(raw)
+            while cursor < len(lines):
+                item = _ITEM.fullmatch(lines[cursor])
+                if not item:
+                    break
+                item_indent = len(item.group(1))
+                item_text = item.group(2) or ""
+                if item_text.strip() in _BLOCK_SCALAR:
+                    value, cursor = _read_block(lines, cursor + 1, item_text.strip(), item_indent)
+                    values.append(value)
+                else:
+                    values.append(_decode_scalar(item_text))
+                    cursor += 1
+            if values:
+                if raw.strip():
+                    raise ValueError(f"frontmatter key mixes scalar and list: {key}")
+                frontmatter[key] = values
+            else:
+                frontmatter[key] = _decode_scalar(raw)
         index = cursor
 
     tags = frontmatter.get("tags", [])
