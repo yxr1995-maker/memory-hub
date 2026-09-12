@@ -1,6 +1,6 @@
 {
   "name": "memory-hub",
-  "version": "2.0.0+codex.20260908063711",
+  "version": "2.0.0+codex.20260912143857",
   "description": "\u672c\u5730\u5386\u53f2\u8bb0\u5fc6\u81ea\u52a8\u53ec\u56de\u3001\u589e\u91cf\u91c7\u96c6\u4e0e\u540e\u53f0\u8bc1\u636e\u6574\u7406",
   "author": {
     "name": "Eran"
@@ -20,6 +20,10 @@
     ],
     "defaultPrompt": [
       "\u67e5\u8bc1\u8fd9\u4e2a\u9879\u76ee\u4e4b\u524d\u7684\u76f8\u5173\u51b3\u7b56\u548c\u6765\u6e90"
-    ]
+    ],
+    "brandColor": "#2E9EFF",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo-dark.png"
   }
 }
