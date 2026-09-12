@@ -85,9 +85,12 @@ def test_utility_never_grants_access_or_hides_evidence(env, monkeypatch):
 
 def test_switch_off_restores_the_plain_order(tied, monkeypatch):
     db, owner, agent, ids = tied
-    baseline = ordered(db, agent)
+    monkeypatch.setenv('MEMORY_HUB_EXPERIENCE_UTILITY', '0')
+    plain = ordered(db, agent)
     record_episode(db, agent, feedback(ids['C'], 'rejected'), idempotency_key='fb-c')
     record_episode(db, agent, feedback(ids['A'], 'adopted'), idempotency_key='fb-a')
-    assert ordered(db, agent) != baseline
+    monkeypatch.setenv('MEMORY_HUB_EXPERIENCE_UTILITY', '1')
+    # Deterministic regardless of generated ids: adopted +1, neutral 0, rejected -2.
+    assert ordered(db, agent) == [ids['A'], ids['B'], ids['C']]
     monkeypatch.setenv('MEMORY_HUB_EXPERIENCE_UTILITY', '0')
-    assert ordered(db, agent) == baseline
+    assert ordered(db, agent) == plain
