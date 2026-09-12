@@ -276,10 +276,8 @@ class RunStageRunner(StageRunner):
             tx.journal.save_before_images([entry.path for entry in plan.entries])
             report = apply_backfill(plan, tx.operation)
             updated = int(report.counts.get("updated", report.counts.get("applied", 0)))
-            self.scope_paths = tuple(
-                entry.relative_path for entry in plan.entries
-                if (tx.operation.wiki_path / entry.relative_path).is_file()
-            )
+            # Only files this run actually wrote may enter the commit whitelist.
+            self.scope_paths = tuple(report.written_paths)
             return StageOutcome.ok_outcome(message=f"scope_backfill: {updated} pages", data={"backfilled": updated})
         if stage_name == "distill":
             proc = self._run_script("distill.sh", ["--llm"] if self.llm else [], tx)

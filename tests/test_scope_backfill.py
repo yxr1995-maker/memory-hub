@@ -85,12 +85,16 @@ def test_12900_cursor_batches_apply_idempotently_and_skip_changed(tmp_path: Path
     )
     report = apply_backfill(first, operation(wiki, data))
     assert report.counts == {"written": 499, "concurrent_change": 1}
+    # Only paths actually written may enter the commit whitelist.
+    assert len(report.written_paths) == 499 and "pages/00000.md" in report.written_paths
+    assert "pages/00004.md" not in report.written_paths
 
     rerun = apply_backfill(
         plan_backfill(wiki, None, 500, operation(wiki, data)),
         operation(wiki, data),
     )
     assert rerun.counts.get("written", 0) == 0
+    assert rerun.written_paths == ()
     assert parse_page(wiki / "pages/00000.md").body == b"body 0\n"
 
     second = plan_backfill(wiki, first.next_cursor, 500, operation(wiki, data))

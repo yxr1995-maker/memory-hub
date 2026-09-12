@@ -135,6 +135,7 @@ for f in "${VALID_PAGES[@]}"; do
   MH=0
   is_memoryhub "$f" && MH=1
   STAT="$(sed -n 's/^status: *//p' "$f" | tr -d "'")"
+  REL_TARGET=""
   if [[ "$STAT" == "candidate" && "$SLUG" != "$ACCEPT_CANDIDATE" ]]; then
     echo "publish: [conflict, 未发布] $DIR/$SLUG (status: candidate, 见 reports/conflicts/)"
     continue
