@@ -35,6 +35,10 @@ def main() -> int:
     # store from any workspace; only hosts without one fall back to host roots.
     host_scope = (data / 'experience-host.json').is_file()
     env['MEMORY_HUB_EXPERIENCE_HOST_ROOTS'] = '1' if runtime_file and not explicit_scope and not mapped and not host_scope else '0'
+    # M4-1 passed its frozen comparison; semantic candidates are the default once
+    # a host scope exists, and an explicit value from the host still wins.
+    if host_scope and os.environ.get('MEMORY_HUB_EXPERIENCE_SEMANTIC') is None:
+        env['MEMORY_HUB_EXPERIENCE_SEMANTIC'] = '1'
     if runtime_file:
         env['MEMORY_HUB_EXPERIENCE_RUNTIME'] = str(runtime_file)
 

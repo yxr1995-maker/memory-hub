@@ -27,7 +27,22 @@ def candidates(c,ctx,task):
             GROUP BY k.event_id ORDER BY score DESC,k.event_id LIMIT 20''',
             [group,query_terms,collections]).fetchall()
         for row in rows:scores[row['event_id']]=scores.get(row['event_id'],0)+row['score']
-    return sorted(scores,key=lambda i:(-scores[i],i))[:60]
+    lexical_order=sorted(scores,key=lambda i:(-scores[i],i))
+    from . import semantic
+    if semantic.enabled():
+        semantic_order=semantic.semantic_candidates(c,ctx,task)
+        if semantic_order:
+            return _fuse(lexical_order,semantic_order)[:60]
+    return lexical_order[:60]
+
+
+def _fuse(lexical_order,semantic_order,k=60):
+    """Rank fusion over both candidate lists; deterministic tie-break by event id."""
+    scores={}
+    for order in (lexical_order,semantic_order):
+        for position,event_id in enumerate(order):
+            scores[event_id]=scores.get(event_id,0.0)+1.0/(k+position+1)
+    return sorted(scores,key=lambda i:(-scores[i],i))
 
 
 def load_versions(c,ids):

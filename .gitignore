@@ -44,3 +44,5 @@ evaluation/experience_v1/*
 # Frozen experiment payloads: multi-GB runtime evidence (cells, snapshots, sqlite).
 # Kept on disk for audit; deliberately not part of the source tree.
 docs/evidence/
+!evaluation/experience_v1/m4_semantic.py
+!evaluation/experience_v1/m4_paraphrase.jsonl

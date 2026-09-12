@@ -122,6 +122,11 @@ def index_version(c,event_id,payload):
     groups={'goal':payload['goal'], 'reason':(payload.get('explicit_reason') or '')+' '+payload['narrative'],
             'condition':' '.join(condition_parts)}
     c.executemany('INSERT INTO experience_keys VALUES(?,?,?)',[(event_id,g,t) for g,s in groups.items() for t in tokens(s)])
+    from . import semantic
+    if semantic.enabled():
+        row=c.execute('SELECT max(revision) FROM experience_versions WHERE event_id=?',(event_id,)).fetchone()
+        if row and row[0]:
+            semantic.index_vectors(c,event_id,int(row[0]),payload)
 
 
 def rebuild_keys(db_path,ctx):

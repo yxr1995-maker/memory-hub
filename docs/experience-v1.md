@@ -120,6 +120,10 @@ A complete 36-session A/B/C comparison ran on the free SenseNova route (`senseno
 The experience path is active for every Codex workspace by owner instruction. `~/.memory-hub/experience-host.json` grants one collection (`codex`) with `profile:false`, so the six legacy memory tools stay available next to `recall_for_decision`, `read_evidence` and `record_episode`; the store lives at `~/.memory-hub/experience.sqlite3`. The plugin launcher treats a host scope file at the resolved data root as explicit scope, so no per-workspace mapping is needed. Rollback: empty that file, or restore the launcher backup in docs/evidence/experience-v1/m3-activation-20260912/cache-backup/. Availability is verified; daily benefit is not.
 
 
+## M4-1 semantic recall (2026-09-13)
+
+Lexical 2/3-gram keys cannot match paraphrases, and the M2 comparison ran the experience condition with lexical-only retrieval. Local vectors (fastembed BAAI/bge-small-zh-v1.5, same model as scripts/embed.py) now sit behind a derived, rebuildable experience_vectors table; recall fuses lexical and semantic candidates with RRF, and store.index_version refreshes the current revision vector when the switch is on. Frozen paraphrase comparison: hit@3 0.0 to 0.8 on the five zero-overlap queries, 1.0 = 1.0 on self-queries; cost +4.1 ms per recall, 0.88 s to index ten episodes, no LLM calls. Default: on whenever a host scope file exists, MEMORY_HUB_EXPERIENCE_SEMANTIC=0 opts out, and a missing embedder falls back to lexical. This is retrieval quality only; task-outcome benefit is still unproven.
+
 ## Frozen M2 diagnostic
 
 `evaluation.experience_v1.m2` reuses the existing snapshot freezer, B/C retrieval, Agnes transport and fixed-action executor. It freezes four previously exposed engineering cases plus four new synthetic creative briefs, then performs 24 single-response calls across A/B/C. This is a bounded diagnostic, not an unseen generalization benchmark or a Desktop acceptance substitute.
