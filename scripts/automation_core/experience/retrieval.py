@@ -28,20 +28,29 @@ def candidates(c,ctx,task):
             [group,query_terms,collections]).fetchall()
         for row in rows:scores[row['event_id']]=scores.get(row['event_id'],0)+row['score']
     lexical_order=sorted(scores,key=lambda i:(-scores[i],i))
+    order,base=lexical_order,scores
     from . import semantic
     if semantic.enabled():
         semantic_order=semantic.semantic_candidates(c,ctx,task)
         if semantic_order:
-            return _fuse(lexical_order,semantic_order)[:60]
-    return lexical_order[:60]
+            base=_rrf_scores(lexical_order,semantic_order)
+            order=sorted(base,key=lambda i:(-base[i],i))
+    from . import utility
+    return utility.rank(c,ctx,order,base)[:60]
 
 
-def _fuse(lexical_order,semantic_order,k=60):
-    """Rank fusion over both candidate lists; deterministic tie-break by event id."""
+def _rrf_scores(lexical_order,semantic_order,k=60):
+    """Reciprocal rank fusion scores over both candidate lists."""
     scores={}
     for order in (lexical_order,semantic_order):
         for position,event_id in enumerate(order):
             scores[event_id]=scores.get(event_id,0.0)+1.0/(k+position+1)
+    return scores
+
+
+def _fuse(lexical_order,semantic_order,k=60):
+    """Rank fusion over both candidate lists; deterministic tie-break by event id."""
+    scores=_rrf_scores(lexical_order,semantic_order,k)
     return sorted(scores,key=lambda i:(-scores[i],i))
 
 
@@ -134,6 +143,8 @@ def recall(db_path,ctx,*,task,mode='evidence',max_chars=6000,conditions=None):
         ids=candidates(c,ctx,task)
         rows=load_versions(c,ids)
         query_terms=tokens(task)
+        from . import utility
+        feedback=utility.detail(c,ctx,ids)
         selected=[];degraded=[]
         for i in ids:
             if i not in rows:continue
@@ -143,6 +154,8 @@ def recall(db_path,ctx,*,task,mode='evidence',max_chars=6000,conditions=None):
                 continue
             item=card(rows[i],mode,query_conditions=conditions)
             item['retrieval_match']=retrieval_match(c,i,query_terms)
+            if feedback.get(i):
+                item['feedback_utility']={**feedback[i],'basis':'feedback_tie_break_only'}
             selected.append(item)
             if len(selected)==3:break
         # Counterexamples must be explicitly linked, accessible and active.

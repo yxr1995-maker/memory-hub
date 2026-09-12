@@ -20,6 +20,22 @@ def test_launcher_defaults_to_host_scope_file_for_any_workspace(tmp_path,monkeyp
     assert env['MEMORY_HUB_EXPERIENCE_HOST_ROOTS']=='0'
     assert env['MEMORY_HUB_DATA']==str(default)
     assert env.get('MEMORY_HUB_EXPERIENCE_SEMANTIC')=='1'
+    assert env.get('MEMORY_HUB_EXPERIENCE_UTILITY')=='1'
+
+
+def test_launcher_respects_an_explicit_utility_opt_out(tmp_path,monkeypatch):
+    import os
+    for k in list(os.environ):
+        if k.startswith('MEMORY_HUB_') or k=='WIKI_PATH':monkeypatch.delenv(k)
+    default=tmp_path/'default';default.mkdir()
+    (default/'experience-host.json').write_text('{"collections":["codex"],"artifact_roots":[],"profile":false}')
+    runtime=tmp_path/'runtime.json'
+    runtime.write_text(json.dumps({'hub_root':str(HUB),'data_path':str(default),'wiki_path':str(tmp_path/'wiki'),'workspaces':{}}))
+    monkeypatch.setenv('MEMORY_HUB_RUNTIME',str(runtime));monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('MEMORY_HUB_EXPERIENCE_UTILITY','0')
+    seen=[];monkeypatch.setattr(os,'execvpe',lambda exe,args,env:seen.append(env))
+    runpy.run_path(str(HUB/'plugins/memory-hub/mcp/launch.py'))['main']()
+    assert seen[0]['MEMORY_HUB_EXPERIENCE_UTILITY']=='0'
 
 
 def test_launcher_respects_an_explicit_semantic_opt_out(tmp_path,monkeypatch):

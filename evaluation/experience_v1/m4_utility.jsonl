@@ -1,0 +1,6 @@
+{"id":"util-01","goal":"zzcommon 经历甲","action":"validated","by":"owner"}
+{"id":"util-02","goal":"zzcommon 经历乙","action":"adopted","by":"agent"}
+{"id":"util-03","goal":"zzcommon 经历丙","action":"modified","by":"agent"}
+{"id":"util-04","goal":"zzcommon 经历丁","action":"displayed","by":"agent"}
+{"id":"util-05","goal":"zzcommon 经历戊","action":"rejected","by":"owner"}
+{"id":"util-06","goal":"zzcommon 经历己","action":null,"by":null}

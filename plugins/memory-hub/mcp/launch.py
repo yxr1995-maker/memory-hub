@@ -39,6 +39,10 @@ def main() -> int:
     # a host scope exists, and an explicit value from the host still wins.
     if host_scope and os.environ.get('MEMORY_HUB_EXPERIENCE_SEMANTIC') is None:
         env['MEMORY_HUB_EXPERIENCE_SEMANTIC'] = '1'
+    # M4-3 passed its frozen comparison; feedback only breaks ties between equal
+    # relevance scores. An explicit host value still wins.
+    if host_scope and os.environ.get('MEMORY_HUB_EXPERIENCE_UTILITY') is None:
+        env['MEMORY_HUB_EXPERIENCE_UTILITY'] = '1'
     if runtime_file:
         env['MEMORY_HUB_EXPERIENCE_RUNTIME'] = str(runtime_file)
 
