@@ -35,6 +35,19 @@ jobs:
         run: |
           brew install ripgrep jq sqlite3 || true
 
+      # The macOS image ships an sqlite3 CLI without FTS5 and Homebrew's build is keg-only,
+      # so scripts/index.sh failed with "no such module: fts5" until PATH was corrected.
+      - name: Prefer an sqlite3 with FTS5 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew list sqlite3 >/dev/null 2>&1 || brew install sqlite3
+          echo "$(brew --prefix sqlite3)/bin" >> "$GITHUB_PATH"
+
+      - name: Verify the sqlite3 CLI has FTS5
+        run: |
+          sqlite3 --version
+          sqlite3 :memory: "create virtual table t using fts5(a); insert into t values ('ok');"
+
       - name: Install test dependencies
         run: python3 -m pip install -r requirements-test.txt
 
