@@ -143,6 +143,19 @@ def test_empty_baseline_requires_cached_to_equal_verified_whitelist(operation_fi
     assert "next.md" not in operation_fixture.cached_paths()
 
 
+def test_non_ascii_paths_round_trip_through_exact_staging(operation_fixture: OperationFixture) -> None:
+    """git quotes non-ASCII paths unless -z is used; staging must still compare exactly."""
+    rel = "atoms/2022-08-18/合伙企业投资退出方式-4bcaf2.md"
+    tx = operation_fixture.transaction()
+    report = stage_exact(operation_fixture.repo, tx, [operation_fixture.owned(rel)])
+    assert report.result == "exact"
+    cached = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z"], cwd=operation_fixture.repo,
+        capture_output=True, text=True, errors="surrogateescape",
+    ).stdout
+    assert [p for p in cached.split("\0") if p] == [rel]
+
+
 def test_rollback_reverts_only_this_operation_commit(operation_fixture: OperationFixture) -> None:
     tx = operation_fixture.transaction()
     report = stage_exact(operation_fixture.repo, tx, [operation_fixture.owned("owned.md")])

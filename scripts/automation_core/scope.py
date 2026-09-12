@@ -62,6 +62,7 @@ class BackfillReport:
     counts: dict[str, int]
     next_cursor: str | None
     report_path: Path
+    written_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -404,7 +405,10 @@ def apply_backfill(plan: BackfillPlan, ctx: OperationContext) -> BackfillReport:
             atomic_replace_same_dir(entry.path, before.read_bytes())
             _append_record(report_path, {"path": entry.relative_path, "result": "rolled_back"})
         raise
-    return BackfillReport(dict(counts), plan.next_cursor, report_path)
+    return BackfillReport(
+        dict(counts), plan.next_cursor, report_path,
+        tuple(entry.relative_path for entry, _ in written),
+    )
 
 
 __all__ = [

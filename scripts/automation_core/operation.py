@@ -17,6 +17,19 @@ from typing import Any
 from .schema import OperationContext
 
 
+def _git_paths(repo: Path, args: Sequence[str], *, check: bool = True) -> list[str]:
+    """Repository-relative paths from a git command, NUL-separated.
+
+    Without ``-z`` git quotes non-ASCII paths (core.quotePath default), which
+    would never compare equal to workspace paths.
+    """
+    out = subprocess.run(
+        ["git", *args, "-z"], cwd=repo, capture_output=True, text=True,
+        errors="surrogateescape", check=check,
+    ).stdout
+    return [part for part in out.split("\0") if part]
+
+
 class LockBusy(Exception):
     def __init__(self, message: str = "automation lock is held", exit_code: int = 75) -> None:
         super().__init__(message)
@@ -120,21 +133,15 @@ class GitBaseline:
         if not (repo / ".git").exists():
             return cls(staged=(), unstaged=())
         try:
-            out_staged = subprocess.run(
-                ["git", "diff", "--cached", "--name-only"],
-                cwd=repo, capture_output=True, text=True, check=True
-            ).stdout.splitlines()
-            out_unstaged = subprocess.run(
-                ["git", "diff", "--name-only"],
-                cwd=repo, capture_output=True, text=True, check=True
-            ).stdout.splitlines()
+            out_staged = _git_paths(repo, ["diff", "--cached", "--name-only"])
+            out_unstaged = _git_paths(repo, ["diff", "--name-only"])
             head = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=repo, capture_output=True, text=True, check=False,
             ).stdout.strip()
             return cls(
-                staged=tuple(sorted(line.strip() for line in out_staged if line.strip())),
-                unstaged=tuple(sorted(line.strip() for line in out_unstaged if line.strip())),
+                staged=tuple(sorted(out_staged)),
+                unstaged=tuple(sorted(out_unstaged)),
                 head=head,
             )
         except Exception:
@@ -320,11 +327,7 @@ def stage_exact(
         staged_by_op.add(rel)
     tx.journal.record_staged_paths(sorted(staged_by_op))
     
-    cached_out = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        cwd=repo, capture_output=True, text=True, check=True
-    ).stdout.splitlines()
-    cached = set(line.strip() for line in cached_out if line.strip())
+    cached = set(_git_paths(repo, ["diff", "--cached", "--name-only"]))
     
     if cached != verified_paths:
         # Unstage only operation-added paths
@@ -425,12 +428,7 @@ def rollback_transaction(tx: TransactionContext, *, force: bool = False) -> Roll
                 # files that subsequent commits changed must not be
                 # overwritten by before images.
                 base = tx.journal.own_commit_hash or tx.journal.baseline.head
-                diff = subprocess.run(
-                    ["git", "diff", "--name-only", base, "HEAD"],
-                    cwd=repo, capture_output=True, text=True, check=False,
-                )
-                for line in diff.stdout.splitlines():
-                    rel = line.strip()
+                for rel in _git_paths(repo, ["diff", "--name-only", base, "HEAD"], check=False):
                     if rel:
                         changed = repo / rel
                         externally_modified.add(str(changed.absolute()))
