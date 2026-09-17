@@ -100,3 +100,23 @@ def test_stale_page_ranks_after_fresh_with_equal_base():
     }
     ranked = rank_results(SearchRequest("q", top=5), _plan(), recalls, pages, tau=0)
     assert [r.path for r in ranked] == ["new.md", "old.md"]
+
+
+def test_neighbor_boost_recorded_in_reason():
+    pages = {
+        "hub.md": make_page("hub.md"),
+        "spoke.md": make_page("spoke.md"),
+    }
+    links = {"hub.md": ["spoke.md"], "spoke.md": ["hub.md"]}
+    # spoke is directly recalled AND neighbor-boosted via hub
+    recalls = {"original": [RecallHit("hub.md", 0.9, 1), RecallHit("spoke.md", 0.5, 2)]}
+    ranked = rank_results(SearchRequest("q", top=5), _plan(), recalls, pages, links=links)
+    spoke = next(r for r in ranked if r.path == "spoke.md")
+    assert spoke.rank_reason.get("neighbor_boost", 0) > 0
+    # pure-neighbor entry keeps via=neighbor plus the boost field
+    ranked2 = rank_results(SearchRequest("q", top=5), _plan(),
+                           {"original": [RecallHit("hub.md", 0.9, 1)]},
+                           pages, links=links)
+    spoke2 = next(r for r in ranked2 if r.path == "spoke.md")
+    assert spoke2.rank_reason.get("via") == "neighbor"
+    assert spoke2.rank_reason.get("neighbor_boost", 0) > 0

@@ -243,6 +243,7 @@ def main():
         "hits": res.hits,
         "total": res.total,
         "by_type": _by_type(res.details),
+        "details": res.details,
         "passed": passed,
     }
     report_path = args.report or args.report_json

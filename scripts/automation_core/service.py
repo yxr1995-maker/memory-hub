@@ -12,10 +12,11 @@ import socket
 import urllib.error
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .frontmatter import parse_page
 from .indexer import IndexedPage, load_page_records
 from .query_planner import (
     AuditSink,
@@ -172,6 +173,45 @@ class MemoryService:
             return {}
         return dict(adj)
 
+    def _drop_rejected_disk(
+        self, results: Sequence[SearchResult], keep: int | None = None
+    ) -> list[SearchResult]:
+        """Drop results whose on-disk frontmatter says status: rejected.
+
+        Single choke point after ranking (pre-truncation): covers recall
+        paths that bypass the index (rg fallback, stale index records)
+        and any future recall path. Scans in rank order and stops once
+        `keep` non-rejected results are collected, so disk reads stay
+        bounded (callers cap the pool at N+50). Unreadable or
+        out-of-tree paths fail open (kept) to preserve prior behavior
+        for non-rejected pages.
+        """
+        kept: list[SearchResult] = []
+        for r in results:
+            try:
+                cand = (self.wiki_path / r.path).resolve()
+                try:
+                    cand.relative_to(self.wiki_path)
+                except ValueError:
+                    kept.append(r)
+                    if keep is not None and len(kept) >= keep:
+                        break
+                    continue
+                if not cand.is_file():
+                    kept.append(r)
+                    if keep is not None and len(kept) >= keep:
+                        break
+                    continue
+                doc = parse_page(cand)
+                if str(doc.frontmatter.get("status") or "") == "rejected":
+                    continue
+            except Exception:
+                pass
+            kept.append(r)
+            if keep is not None and len(kept) >= keep:
+                break
+        return kept
+
     def search(self, request: SearchRequest, tau: float = DEFAULT_TAU) -> SearchResponse:
         # Validate request
         if len(request.query) > 500:
@@ -183,6 +223,16 @@ class MemoryService:
 
         plan = plan_query(request, self.recall, audit=self.audit)
 
+        # Widen the candidate pool so rejected pages are filtered
+        # pre-truncation: a top-ranked rejected hit must not swallow
+        # the slot (top=1 would otherwise return empty). Pool capped
+        # at N+50 (request.top <= 50), which bounds the post-filter
+        # disk reads.
+        wider_top = min(request.top + 50, 50)
+        rank_request = (
+            replace(request, top=wider_top) if wider_top != request.top else request
+        )
+
         recalls: dict[str, Sequence[RecallHit]] = {}
         if request.fuse:
             recalls["original_fts"] = self.recall.fts(request.query, 15)
@@ -191,13 +241,14 @@ class MemoryService:
                 recalls[f"expansion_{idx}_fts"] = self.recall.fts(term.text, 10)
                 recalls[f"expansion_{idx}_vec"] = self.recall.vector(term.text, 10)
         else:
-            recalls["original_fts"] = self.recall.fts(request.query, request.top)
+            recalls["original_fts"] = self.recall.fts(request.query, wider_top)
             for idx, term in enumerate(plan.expansions):
-                recalls[f"expansion_{idx}_fts"] = self.recall.fts(term.text, request.top)
+                recalls[f"expansion_{idx}_fts"] = self.recall.fts(term.text, wider_top)
 
         pages = self._load_pages()
         links = self._load_links()
-        results = rank_results(request, plan, recalls, pages, self.metrics, tau=tau, links=links)
+        results = rank_results(rank_request, plan, recalls, pages, self.metrics, tau=tau, links=links)
+        results = tuple(self._drop_rejected_disk(results, keep=request.top)[:request.top])
         self.audit.finish(plan, final_hits=len(results))
 
         return SearchResponse(request=request, plan=plan.public_explain(request), results=results)

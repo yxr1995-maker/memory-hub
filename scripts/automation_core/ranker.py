@@ -233,12 +233,16 @@ def rank_results(
         for canon, contrib in neighbor_best.items():
             if canon in target_scores:
                 target_scores[canon] += contrib
+                prev = target_reasons.get(canon)
+                if prev is not None:
+                    prev["neighbor_boost"] = round(prev.get("neighbor_boost", 0.0) + contrib, 4)
             else:
                 target_scores[canon] = contrib
                 nb_res = resolve_successor(canon, pages)
                 target_resolutions[canon] = nb_res
                 target_reasons[canon] = {
                     "base_score": round(contrib, 4),
+                    "neighbor_boost": round(contrib, 4),
                     "status": nb_res.status,
                     "via": "neighbor",
                 }
