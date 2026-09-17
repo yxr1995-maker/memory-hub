@@ -22,6 +22,7 @@ usage() {
   echo "  eval [--top N]       自评测基准(F3): 跑 evaluation/golden.jsonl 算 hit@N/MRR → reports/eval-<date>.md"
   echo "  archive [--keep N] [--apply]  归档已消费的 observation 文件(F4): → staging/archive/（可恢复）"
   echo "  status              健康检查/统计"
+  echo "  usage [--days N]    使用量统计（access.jsonl + events，默认近7天）"
   echo "  verify              静态漂移校验（toml/hook/MCP/DB，CI 用）"
   echo "  metrics             输出 Prometheus 文本指标"
   echo "  serve [--port N]    启动 REST 查询服务（/search /ask /status /metrics）"
@@ -58,6 +59,7 @@ case "$CMD" in
   eval) exec python3 "$HUB_DIR/scripts/eval.py" "$@" ;;
   archive) exec "$HUB_DIR/scripts/archive.sh" "$@" ;;
   status) exec "$HUB_DIR/scripts/status.sh" "$@" ;;
+  usage) exec python3 "$HUB_DIR/scripts/usage.py" "$@" ;;
   verify) exec "$HUB_DIR/scripts/verify.sh" "$@" ;;
   metrics) exec "$HUB_DIR/scripts/metrics.sh" "$@" ;;
   serve) exec python3 "$HUB_DIR/scripts/server.py" "$@" ;;

@@ -89,3 +89,5 @@ if [[ "$PROXY_CODE" =~ ^[1-5][0-9][0-9]$ ]]; then
 else
   echo "LLM代理($PROXY_LABEL): 不可用"
 fi
+# 6. 近7天使用量摘要（缺数据降级为0，不中断）
+python3 "$HUB_DIR/scripts/usage.py" --days 7 2>/dev/null || echo "使用量(近7天): 无数据"

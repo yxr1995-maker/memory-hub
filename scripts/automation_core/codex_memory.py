@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS capture_backlog(path TEXT PRIMARY KEY,session_id TEXT
         con.execute("ALTER TABLE cursors ADD COLUMN turn_id TEXT NOT NULL DEFAULT 'unknown'")
     if 'scan_offset' not in {r[1] for r in con.execute('PRAGMA table_info(cursors)')}:
         con.execute("ALTER TABLE cursors ADD COLUMN scan_offset INTEGER NOT NULL DEFAULT 0")
+    if 'pages' not in {r[1] for r in con.execute('PRAGMA table_info(events)')}:
+        try:
+            con.execute('ALTER TABLE events ADD COLUMN pages INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
     db.chmod(0o600)
     return con
 
@@ -263,7 +268,7 @@ def _recall(payload: dict, data: Path, wiki: Path) -> str:
 
 def dispatch(payload: dict, data: Path, wiki: Path) -> dict:
     start=time.monotonic();event=str(payload.get('hook_event_name',''))
-    status='skipped';result={};cfg=settings(data)
+    status='skipped';result={};cfg=settings(data);pages=0
     def expired(*args):raise TimeoutError('hook deadline')
     old_handler=None
     try:
@@ -276,6 +281,7 @@ def dispatch(payload: dict, data: Path, wiki: Path) -> dict:
             context=_recall(payload,data,wiki)
             if context:result={'hookSpecificOutput':{'hookEventName':event,'additionalContext':context}}
             status='recalled' if context else 'no_match'
+            if status=='recalled':pages=len(re.findall('(?m)^来源: ',context))
         elif event in ('Stop','SessionEnd') and cfg['capture']:
             if payload.get('transcript_path') and payload.get('session_id'):
                 with connect(data) as con:
@@ -291,6 +297,6 @@ def dispatch(payload: dict, data: Path, wiki: Path) -> dict:
         with connect(data) as con:
             session=str(payload.get('session_id',''));turn=str(payload.get('turn_id',''))
             key=hashlib.sha256(json.dumps([event,session,turn,status]).encode()).hexdigest()
-            con.execute('insert or replace into events values(?,?,?,?,?,?,?)',(key,event,session,turn,status,round((time.monotonic()-start)*1000,2),datetime.now(timezone.utc).isoformat()))
+            con.execute('insert or replace into events(id,event,session_id,turn_id,status,latency_ms,created_at,pages) values(?,?,?,?,?,?,?,?)',(key,event,session,turn,status,round((time.monotonic()-start)*1000,2),datetime.now(timezone.utc).isoformat(),pages))
     except Exception:pass
     return result
