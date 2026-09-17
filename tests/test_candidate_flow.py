@@ -35,7 +35,8 @@ def main():
         (wiki / "index.md").write_text("", encoding="utf-8")
         (wiki / "log.md").write_text("", encoding="utf-8")
         (target_dir / "old-memoryhub-test-proj.md").write_text("# historical project page\n", encoding="utf-8")
-        env = {**os.environ, "WIKI_PATH": str(wiki)}
+        # M8-R: 蒸馏门槛默认 MIN_OBS=3；本测试语义为单条观察产页，显式设 1 保持原有行为
+        env = {**os.environ, "WIKI_PATH": str(wiki), "MEMORY_HUB_MIN_OBS": "1"}
 
         assert run("bash", str(scripts / "distill.sh"), str(source), env=env).returncode == 0
         page = next((staging / "pages").glob("*.md"))

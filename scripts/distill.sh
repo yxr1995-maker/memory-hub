@@ -68,6 +68,8 @@ llm_summary() {
 }
 
 PAGES=0
+MIN_OBS="${MEMORY_HUB_MIN_OBS:-3}"
+[[ "$MIN_OBS" =~ ^[0-9]+$ ]] || MIN_OBS=3
 while IFS= read -r p || [[ -n "$p" ]]; do
   [[ -n "$p" ]] || continue
 safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g' | sed -E 's/^-|-$//')"
@@ -77,6 +79,11 @@ safe_p="$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | s
   PAGE_TYPE="note"
   TOTAL_N="$(jq -c --arg p "$p" 'select((.project_id // .project)==$p)' "$IN" 2>/dev/null | wc -l | tr -d ' ')"
   [[ "$TOTAL_N" =~ ^[0-9]+$ ]] || TOTAL_N=0
+  # M8-R 蒸馏减产：观察数低于 MIN_OBS 时跳过（--llm 与无 --llm 同规则；全项目不达标则产 0 页 exit 0）
+  if (( TOTAL_N < MIN_OBS )); then
+    echo "distill: 跳过项目 '$p'：观察数 $TOTAL_N < MIN_OBS=$MIN_OBS"
+    continue
+  fi
   TYPES="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .type' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
   ROLE_N="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .role' "$IN" | sort | uniq -c | awk '{printf "%s×%s ", $2, $1}' | sed 's/ $//')"
   PROVENANCE_IDS="$(jq -r --arg p "$p" 'select((.project_id // .project)==$p) | .provenance_id // empty' "$IN" | sort -u)"

@@ -51,6 +51,8 @@ class RunFixture:
             "MEMORY_HUB_DATA": str(self.data),
             "MEMORY_HUB_STAGING": str(self.staging),
             "CODEX_SESSIONS_DIR": str(self.sessions),
+            # M8-R: 蒸馏门槛默认 MIN_OBS=3；本夹具每轮只 seed 单条观察，需 MIN_OBS=1 保持“单条产页”的既有语义
+            "MEMORY_HUB_MIN_OBS": "1",
             "PYTHONPATH": str(ROOT),
         }
         (tmp_path / "home").mkdir(parents=True, exist_ok=True)

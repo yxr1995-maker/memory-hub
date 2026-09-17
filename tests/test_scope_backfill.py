@@ -181,7 +181,8 @@ def test_cli_and_distill_entry_points_use_scope_inference(tmp_path: Path) -> Non
     observations = staging / "observations-fixture.jsonl"
     observations.write_text(json.dumps({"project_id": "Road Map", "project": "Road Map", "type": "message",
                                         "role": "user", "text": "fixture", "id": "1"}) + "\n")
-    distill_env = dict(env, MEMORY_HUB_STAGING=str(staging))
+    # M8-R: 蒸馏门槛默认 MIN_OBS=3；单条观察产页的既有语义需显式设 MIN_OBS=1
+    distill_env = dict(env, MEMORY_HUB_STAGING=str(staging), MEMORY_HUB_MIN_OBS="1")
     distilled = subprocess.run(["bash", "scripts/distill.sh", str(observations)], cwd=ROOT,
                                env=distill_env, text=True, capture_output=True)
     assert distilled.returncode == 0, distilled.stderr

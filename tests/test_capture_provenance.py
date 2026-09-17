@@ -446,7 +446,8 @@ def test_capture_and_distill_use_normalized_provenance(tmp_path: Path) -> None:
     distill = subprocess.run(
         ["bash", "scripts/distill.sh", str(output)],
         cwd=ROOT,
-        env=env,
+        # M8-R: 蒸馏门槛默认 MIN_OBS=3；本测试语义为单条观察产页，显式设 MIN_OBS=1 保持原有行为
+        env={**env, "MEMORY_HUB_MIN_OBS": "1"},
         text=True,
         capture_output=True,
         check=False,
