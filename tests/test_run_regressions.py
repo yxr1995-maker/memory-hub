@@ -49,7 +49,7 @@ def test_cluster_manifest_is_finalized_after_index(tmp_path):
     assert runner.index_swap_once_and_finalize(tx).ok
     assert len(json.loads(manifest.read_text())['entries']) == 1
     with sqlite3.connect(fx.data / 'index.db') as con:
-        assert con.execute("select count(*) from pages where path like 'notes/cluster-%'").fetchone()[0] == 1
+        assert con.execute("select count(*) from pages where path like 'moc/cluster-%'").fetchone()[0] == 1
     assert runner.apply('aggregate', tx).data['clusters'] == 0
 
 
@@ -91,7 +91,7 @@ def test_pipeline_failure_restores_cluster_and_index(tmp_path, monkeypatch, exis
     from scripts.automation_core.indexer import atomic_rebuild_index
     fx, tx = setup(tmp_path)
     key = hashlib.sha256('obs-0\nobs-1\nobs-2'.encode()).hexdigest()[:16]
-    target = fx.wiki / f'notes/cluster-{key}.md'
+    target = fx.wiki / f'moc/cluster-{key}.md'
     if existing:
         target.parent.mkdir()
         target.write_text('Original content before failed operation\n')
@@ -106,6 +106,11 @@ def test_pipeline_failure_restores_cluster_and_index(tmp_path, monkeypatch, exis
             raise RuntimeError('injected manifest failure')
     tx.failure_hook = fail
     report = run_pipeline(tx, runner)
+    if existing:
+        assert target.read_bytes() == b'Original content before failed operation\n'
+        payload = json.loads((fx.data / 'reports' / 'latest-operation.json').read_text())
+        assert target.relative_to(fx.wiki).as_posix() in payload['stage_data']['aggregate']['skipped']
+        return
     assert report.result == 'failed'
     assert report.error == 'injected manifest failure'
     assert {str(p): p.read_bytes() for p in fx.wiki.rglob('*.md')} == before_pages
@@ -160,7 +165,7 @@ def test_commit_stage_failure_rolls_back_committed_wiki_and_index_but_not_stagin
     assert report.error == 'forced post-commit failure'
     assert 'archive.sh' not in call_log
     assert existing.read_bytes() == baseline_existing
-    assert not list(fx.wiki.glob('notes/cluster-*.md'))
+    assert not list(fx.wiki.glob('moc/cluster-*.md'))
     assert (fx.data / 'index.db').read_bytes() == baseline_index
     assert fx.head() == baseline_head
     head_tree = subprocess.run(
@@ -168,7 +173,7 @@ def test_commit_stage_failure_rolls_back_committed_wiki_and_index_but_not_stagin
         cwd=fx.wiki, capture_output=True, text=True, check=True,
     ).stdout.splitlines()
     assert 'pages/existing.md' in head_tree
-    assert not any(path.startswith('notes/cluster-') for path in head_tree)
+    assert not any(path.startswith('moc/cluster-') for path in head_tree)
     staging_names = {p.name for p in fx.staging.iterdir()}
     assert 'observations-20260831-120000.jsonl' in staging_names
     assert not list(fx.staging.glob('archive/observations-*.jsonl'))

@@ -85,7 +85,7 @@ class MaintainFixture:
         return self.git("status", "--porcelain").stdout.strip()
 
     def cluster_pages(self) -> list[Path]:
-        return sorted(self.wiki.glob("notes/cluster-*.md"))
+        return sorted(self.wiki.glob("moc/cluster-*.md"))
 
     def observation_names(self) -> set[str]:
         return {p.name for p in self.staging.glob("observations-*.jsonl")}

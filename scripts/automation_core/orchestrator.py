@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .indexer import IndexBuild, atomic_rebuild_index
-from .cluster import ManifestEntry, cluster_observations, commit_manifest, load_manifest, render_merge_page, scan_observations
+from .cluster import ManifestEntry, classify_cluster_target, cluster_observations, commit_manifest, load_manifest, render_merge_page, scan_observations
 from .lifecycle import LifecycleReport, PreparedLifecycle, finalize_successor_after_index, prepare_successor_pages, successor_plan
 from .scope import apply_backfill, plan_backfill
 from .operation import AutomationLock, GitBaseline, LockBusy, OwnedPath, StageReport, TransactionContext, commit_exact, rollback_transaction, stage_exact
@@ -255,16 +255,21 @@ class RunStageRunner(StageRunner):
             )
         if stage_name == "aggregate":
             manifest_path = tx.operation.data_path / "cluster-manifest.json"
-            observations = scan_observations(self.staging, load_manifest(manifest_path))
+            manifest = load_manifest(manifest_path)
+            observations = scan_observations(self.staging, manifest)
             plans = cluster_observations(observations)
             if not tx.operation.apply:
                 return StageOutcome.ok_outcome(message=f"aggregate: {len(plans)} plans planned", data={"clusters": len(plans)})
             committed = 0
             written_paths: list[str] = []
+            skipped: list[str] = []
             for plan in plans:
                 content = render_merge_page(plan)
-                rel = f"notes/cluster-{plan.key}.md"
+                rel = f"moc/cluster-{plan.key}.md"
                 target = tx.operation.wiki_path / rel
+                if classify_cluster_target(target, content, manifest.entries.get(plan.key)) != "write":
+                    skipped.append(rel)
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 tx.journal.save_before_images([target])
                 target.write_bytes(content)
@@ -273,7 +278,7 @@ class RunStageRunner(StageRunner):
                 committed += 1
                 written_paths.append(rel)
             self.aggregate_paths = tuple(written_paths)
-            return StageOutcome.ok_outcome(message=f"aggregate: {committed} merged pages", data={"clusters": committed})
+            return StageOutcome.ok_outcome(message=f"aggregate: {committed} merged pages, {len(skipped)} skipped", data={"clusters": committed, "skipped": skipped})
         if stage_name == "scope_backfill":
             if not tx.operation.apply:
                 return StageOutcome.ok_outcome(message="scope_backfill: planned only", data={"backfilled": 0})
@@ -348,6 +353,7 @@ class MaintainStageRunner(StageRunner):
         self.manifest = ClusterManifest()
         self.manifest_path: Path | None = None
         self.index_swaps = 0
+        self.skipped_manual: list[str] = []
 
     def _target(self, root: Path, path: Path) -> Path:
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -401,10 +407,14 @@ class MaintainStageRunner(StageRunner):
         if tx.operation.auto or tx.operation.mode is Mode.SAFE:
             observations = scan_observations(self.staging, self.manifest)
             for cluster in cluster_observations(observations):
-                target = self._target(wiki, wiki / "notes" / f"cluster-{cluster.key}.md")
-                if target.exists():
-                    raise ValueError("cluster target already exists without a consumption record")
                 content = render_merge_page(cluster)
+                target = self._target(wiki, wiki / "moc" / f"cluster-{cluster.key}.md")
+                decision = classify_cluster_target(target, content, self.manifest.entries.get(cluster.key))
+                if decision == "idempotent":
+                    continue
+                if decision == "manual":
+                    self.skipped_manual.append(target.relative_to(wiki).as_posix())
+                    continue
                 header, body = content[4:].split(b"\n---\n", 1)
                 fields = {"scope": "project", "scope_id": cluster.scope_id, "status": "active",
                           "title": f"合并记忆: {cluster.scope_id} ({cluster.key})"}
@@ -416,7 +426,7 @@ class MaintainStageRunner(StageRunner):
                             and p.frontmatter.get("status", "active") == "active"]
                 plan = successor_plan(page, eligible)
                 self.plans.append((cluster, plan))
-        return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "clusters": len(self.plans)},
+        return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "clusters": len(self.plans), "skipped": list(self.skipped_manual)},
                                        message=f"planned {len(self.repairs)} timestamp repairs, {len(self.plans)} clusters")
 
     def plan(self, stage_name: str, tx: TransactionContext) -> StageOutcome:
@@ -469,8 +479,10 @@ class MaintainStageRunner(StageRunner):
                 self._record_owned(path, tx)
             for cluster, plan in self.plans:
                 target = self._target(wiki, plan.new_path)
-                if target.exists():
-                    raise ValueError("cluster publication would overwrite a page")
+                content = render_merge_page(cluster)
+                if classify_cluster_target(target, content, self.manifest.entries.get(cluster.key)) != "write":
+                    self.skipped_manual.append(target.relative_to(wiki).as_posix())
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 temp = target.parent / f".{target.name}.tmp"
                 if temp.exists() or temp.is_symlink():
@@ -485,7 +497,7 @@ class MaintainStageRunner(StageRunner):
                     [hashlib.sha256(m.id.encode()).hexdigest() for m in cluster.members],
                     target.relative_to(wiki).as_posix(), self.owned[target.relative_to(wiki).as_posix()],
                     tx.operation.operation_id, datetime.now(timezone.utc).isoformat()))
-            return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "published": len(self.pending)})
+            return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "published": len(self.pending), "skipped": list(self.skipped_manual)})
         if stage_name == "wiki_fixer_report":
             # Read-only inspection: write the report file only, never touch wiki
             # files, never record owned paths, never write the journal.

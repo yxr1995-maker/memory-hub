@@ -33,6 +33,7 @@ type_dir() {
     query) echo "queries" ;;
     entity) echo "entities" ;;
     comparison) echo "comparisons" ;;
+    moc) echo "moc" ;;
     *) echo "queries" ;;
   esac
 }

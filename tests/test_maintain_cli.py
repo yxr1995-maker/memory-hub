@@ -73,7 +73,7 @@ def test_auto_commit_and_replay_via_shell(cli_fixture):
     wiki, data, _, env = cli_fixture
     first = invoke(cli_fixture)
     assert first.returncode == 0, first.stdout + first.stderr
-    pages = list(wiki.glob("notes/cluster-*.md"))
+    pages = list(wiki.glob("moc/cluster-*.md"))
     assert len(pages) == 1
     with sqlite3.connect(f"file:{data / 'index.db'}?mode=ro", uri=True) as db:
         assert db.execute("pragma integrity_check").fetchone()[0] == "ok"
@@ -85,7 +85,7 @@ def test_auto_commit_and_replay_via_shell(cli_fixture):
     assert len(json.loads(manifest)["entries"]) == 1
     second = invoke(cli_fixture)
     assert second.returncode == 0, second.stdout + second.stderr
-    assert len(list(wiki.glob("notes/cluster-*.md"))) == 1
+    assert len(list(wiki.glob("moc/cluster-*.md"))) == 1
     assert manifest_path.read_bytes() == manifest
     assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=wiki, env=env) == head
     assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=wiki, env=env)
@@ -137,7 +137,7 @@ def test_no_auto_apply_repairs_without_clustering_or_commit(cli_fixture):
     result = invoke(cli_fixture, "--no-auto", "--apply")
     assert result.returncode == 0, result.stdout + result.stderr
     assert page.read_bytes() != before
-    assert not list(wiki.glob("notes/cluster-*.md"))
+    assert not list(wiki.glob("moc/cluster-*.md"))
     assert not (data / "manifests" / "cluster-observations-v1.json").exists()
     assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=wiki, env=env) == head
     assert not subprocess.check_output(["git", "diff", "--cached", "--name-only"], cwd=wiki, env=env)

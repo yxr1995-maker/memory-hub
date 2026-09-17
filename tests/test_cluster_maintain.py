@@ -83,7 +83,8 @@ class ClusterFixture:
         tx.journal.checkpoint("INDEX_SWAPPED")
         tx.journal.checkpoint("LINT_PASSED")
         page_bytes = render_merge_page(plan)
-        target = self.wiki / f"merged-{plan.key}.md"
+        target = self.wiki / "moc" / f"cluster-{plan.key}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(page_bytes)
 
         entry = ManifestEntry(
@@ -127,7 +128,7 @@ class ClusterFixture:
         return sr
 
     def cluster_page_count(self) -> int:
-        return len(list(self.wiki.glob("merged-*.md")))
+        return len(list(self.wiki.glob("moc/cluster-*.md")))
 
 
 @pytest.fixture

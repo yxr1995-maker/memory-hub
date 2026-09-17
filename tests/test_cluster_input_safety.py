@@ -32,5 +32,5 @@ def test_render_escapes_quotes_and_uses_hashed_member_ids(tmp_path):
     assert page.frontmatter["abstract"] == rows[0]["text"]
     assert b"user''s" in content
     assert b"private-observation-id" not in content
-    assert hashlib.sha256(rows[0]["id"].encode()).hexdigest().encode() in content
+    assert hashlib.sha256(rows[0]["id"].encode()).hexdigest()[:12].encode() in content
     assert "待核实" in content.decode()

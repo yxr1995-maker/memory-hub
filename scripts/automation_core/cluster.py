@@ -19,6 +19,13 @@ from .codex_memory import clean_text
 from .schema import normalize_id
 
 
+GENERATOR = "memory-hub-cluster"
+
+_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+# Shell test brackets ([[ $# -eq 0 ]]) must never render as wikilinks.
+_SHELL_CHARS = frozenset("$\"!*?\\\\<>(){}=;&|" + chr(96))
+
+
 @dataclass(frozen=True)
 class ClusterObservation:
     id: str
@@ -29,6 +36,54 @@ class ClusterObservation:
     source_uri: str = ""
     agent_id: str | None = None
     cwd_hash: str = ""
+
+
+def member_link(member: ClusterObservation) -> str | None:
+    """Resolve a member to a wikilink target, or None when it must degrade."""
+    src = (member.source_uri or "").strip()
+    if src:
+        target = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]*", "", src).lstrip("/")
+        for prefix in ("~/llm-wiki/", "llm-wiki/", "wiki/"):
+            if target.startswith(prefix):
+                target = target[len(prefix):]
+                break
+        if target.endswith(".md"):
+            target = target[:-3]
+        if target:
+            return target
+    for match in _LINK_RE.finditer(member.text):
+        target = match.group(1).strip()
+        if target and not any(ch in _SHELL_CHARS for ch in target):
+            return target
+    return None
+
+
+def classify_cluster_target(target: Path, content: bytes, entry: ManifestEntry | None) -> str:
+    """Return 'write' | 'idempotent' | 'manual' for a cluster page target.
+
+    Never overwrites: identical auto pages replay as idempotent, anything
+    else that already exists is treated as manually edited and skipped.
+    """
+    if not target.exists():
+        return "write"
+    try:
+        current = target.read_bytes()
+    except OSError:
+        return "manual"
+    if current == content:
+        return "idempotent"
+    if ("generator: " + GENERATOR).encode() not in current:
+        return "manual"
+    if entry is not None and entry.created_at:
+        try:
+            created = datetime.fromisoformat(entry.created_at)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if datetime.fromtimestamp(target.stat().st_mtime, timezone.utc) > created:
+                return "manual"
+        except (ValueError, OSError):
+            return "manual"
+    return "manual"
 
 
 @dataclass(frozen=True)
@@ -244,7 +299,8 @@ def render_merge_page(cluster: ClusterPlan, now: datetime | None = None) -> byte
     
     frontmatter = [
         "---",
-        "type: note",
+        "type: moc",
+        f"generator: {GENERATOR}",
         f"title: '合并记忆: {cluster.scope_id} ({cluster.key})'",
         "status: active",
         "scope: project",
@@ -265,8 +321,12 @@ def render_merge_page(cluster: ClusterPlan, now: datetime | None = None) -> byte
         "## 观察明细",
     ]
     for m in cluster.members:
-        member_hash = hashlib.sha256(m.id.encode("utf-8")).hexdigest()
-        frontmatter.append(f"- [{member_hash}] ({m.created_at_date}) {m.text}")
+        link = member_link(m)
+        if link:
+            frontmatter.append(f"- [[{link}]] ({m.created_at_date}) {m.text}")
+        else:
+            short = hashlib.sha256(m.id.encode("utf-8")).hexdigest()[:12]
+            frontmatter.append(f"- [{short}] ({m.created_at_date}) {m.text}")
 
     return chr(10).join(frontmatter).encode("utf-8") + b"\n"
 
