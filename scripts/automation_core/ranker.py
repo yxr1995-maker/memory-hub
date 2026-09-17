@@ -263,8 +263,8 @@ def rank_results(
         score = base_score
         if page.type in ("entity", "concept"):
             score *= 1.8
-        elif page.type in ("atom", "query", "draft"):
-            score *= 0.7
+        elif page.type in ("atom", "query", "draft", "note"):
+            score *= 0.3
 
         ts = _parse_ts(page.valid_at or page.updated)
         if tau and tau > 0 and ts is not None:

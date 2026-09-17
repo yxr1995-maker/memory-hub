@@ -125,3 +125,47 @@ def test_render_human_formatting() -> None:
     assert "[0.123] notes/a.md" in text
     assert "[0.057] notes/b.md" in text
 
+
+def test_fragment_page_types_get_downweighted_to_0_3x() -> None:
+    from datetime import date
+
+    today = date.today().isoformat()
+    plan = QueryPlan(
+        query="q",
+        query_hash="hash_frag",
+        expansions=(),
+        planner="original-only",
+        fallback_reason=None,
+        l0_snippets=(),
+        latency_ms=1.0,
+    )
+    recalls = {
+        "original": [
+            RecallHit("concept.md", 0.9, 1),
+            RecallHit("atom.md", 0.9, 2),
+            RecallHit("note.md", 0.9, 3),
+            RecallHit("base.md", 0.9, 4),
+        ],
+    }
+    pages = {
+        "concept.md": make_page("concept.md", ptype="concept", updated=today),
+        "atom.md": make_page("atom.md", ptype="atom", updated=today),
+        "note.md": make_page("note.md", ptype="note", updated=today),
+        "base.md": make_page("base.md", ptype="unknown", updated=today),
+    }
+    ranked = rank_results(SearchRequest("q", top=5), plan, recalls, pages, tau=0)
+    scores = {r.path: r.score for r in ranked}
+    # With tau=0 decay is off, so each page's final score is base_score * type_mult.
+    # RRF base differs per page (rank-dependent), so normalise by the per-page
+    # base_score recorded in rank_reason to isolate the multiplier. Tolerance
+    # absorbs the 4-decimal rounding of base_score (up to ~0.5% of a small base).
+    mult = {r.path: r.score / r.rank_reason["base_score"] for r in ranked}
+    assert mult["base.md"] == pytest.approx(1.0, rel=0.02)      # unknown baseline
+    assert mult["concept.md"] == pytest.approx(1.8, rel=0.02)   # boosted group
+    assert mult["atom.md"] == pytest.approx(0.3, rel=0.02)      # downweight group
+    assert mult["note.md"] == pytest.approx(0.3, rel=0.02)      # note now downweighted
+    # fragment pages: 0.3x sits below the 1.0x baseline and far below 1.8x concept
+    assert mult["atom.md"] < mult["base.md"] < mult["concept.md"]
+    assert mult["note.md"] < mult["base.md"] < mult["concept.md"]
+    # atom and note share the identical 0.3 downweight
+    assert mult["atom.md"] == pytest.approx(mult["note.md"], rel=0.02)
