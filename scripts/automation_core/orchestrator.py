@@ -30,6 +30,7 @@ from .operation import AutomationLock, GitBaseline, LockBusy, OwnedPath, StageRe
 from .schema import Mode, OperationContext
 from .schema import PageDocument
 from .frontmatter import parse_page, patch_frontmatter
+from .wiki_fixer import report_path, render_report, run_report
 from .cluster import ClusterManifest
 
 
@@ -63,6 +64,7 @@ MAINTAIN_ORDER = (
     "validate",
     "publish_pages_lifecycle",
     "index_swap",
+    "wiki_fixer_report",
     "lint",
     "atomic_manifest_commit",
     "archive",
@@ -73,6 +75,7 @@ MAINTAIN_CHECKPOINTS = (
     "VALIDATED",
     "PAGES_LIFECYCLE_PUBLISHED",
     "INDEX_SWAPPED",
+    "WIKI_FIXER_REPORTED",
     "LINT_PASSED",
     "MANIFEST_COMMITTED",
     "ARCHIVED",
@@ -419,7 +422,19 @@ class MaintainStageRunner(StageRunner):
     def plan(self, stage_name: str, tx: TransactionContext) -> StageOutcome:
         if stage_name == "validate":
             return self._validate(tx)
+        if stage_name == "wiki_fixer_report":
+            return self._wiki_fixer_preview(tx)
         return StageOutcome.ok_outcome(message="preview only", data={"status": "planned"})
+
+    def _wiki_fixer_preview(self, tx: TransactionContext) -> StageOutcome:
+        # Read-only: counts to stdout via the stage message, no files written.
+        dead, stale = run_report(tx.operation.wiki_path, tx.operation.data_path)
+        found = sum(len(v) for v in dead.values())
+        return StageOutcome.ok_outcome(
+            message=f"wiki_fixer_report: {found} dead links in {len(dead)} pages, "
+                    f"{len(stale)} stale pages (report only)",
+            data={"dead_links": found, "dead_pages": len(dead), "stale_pages": len(stale)},
+        )
 
     def _record_owned(self, path: Path, tx: TransactionContext) -> None:
         self.owned[path.relative_to(tx.operation.wiki_path).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -471,6 +486,21 @@ class MaintainStageRunner(StageRunner):
                     target.relative_to(wiki).as_posix(), self.owned[target.relative_to(wiki).as_posix()],
                     tx.operation.operation_id, datetime.now(timezone.utc).isoformat()))
             return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "published": len(self.pending)})
+        if stage_name == "wiki_fixer_report":
+            # Read-only inspection: write the report file only, never touch wiki
+            # files, never record owned paths, never write the journal.
+            dead, stale = run_report(wiki, tx.operation.data_path)
+            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            target = report_path(tx.operation.data_path, day)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(render_report(dead, stale, day), encoding="utf-8")
+            found = sum(len(v) for v in dead.values())
+            return StageOutcome.ok_outcome(
+                message=f"wiki_fixer_report: {found} dead links in {len(dead)} pages, "
+                        f"{len(stale)} stale pages -> {target.name}",
+                data={"dead_links": found, "dead_pages": len(dead),
+                      "stale_pages": len(stale), "report": target.name},
+            )
         if stage_name == "lint":
             with sqlite3.connect(f"file:{tx.operation.data_path / 'index.db'}?mode=ro", uri=True) as db:
                 if db.execute("pragma integrity_check").fetchone()[0] != "ok":
@@ -698,6 +728,16 @@ def _write_run_report(tx: TransactionContext, report: OperationReport, stage_dat
     reports_dir = tx.operation.data_path / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"{tx.operation.command}-{report.operation_id}.json"
+    # 待审统计与 /api/pending 同口径，持久化进 run/maintain 报告（M6 评审 #7）。
+    # OperationReport 保持 frozen 不动，只在报告写出层附加。
+    try:
+        from scripts.server import api_pending as _api_pending
+        _pend_items = _api_pending()["items"]
+        _pending: dict[str, Any] = {"total": len(_pend_items)}
+        for _it in _pend_items:
+            _pending[_it["source"]] = _pending.get(_it["source"], 0) + 1
+    except Exception as exc:
+        _pending = {"error": str(exc)[:200]}
     payload = {
         "operation_id": report.operation_id,
         "command": tx.operation.command,
@@ -708,6 +748,7 @@ def _write_run_report(tx: TransactionContext, report: OperationReport, stage_dat
         "checkpoints": report.checkpoints,
         "failed_stage": report.failed_stage,
         "error": report.error,
+        "pending": _pending,
         "stage_data": stage_data,
         "written_at": datetime.now(timezone.utc).isoformat(),
     }

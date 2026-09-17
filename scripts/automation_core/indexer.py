@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .frontmatter import parse_page
+from .links import build_page_sets, resolve_outlinks
 from .schema import IndexSchema, normalize_id
 
 
@@ -34,6 +35,14 @@ VEC_DDL = """CREATE TABLE vec(
   dim INT,
   v BLOB
 );"""
+
+LINKS_DDL = """CREATE TABLE links(
+  src_path TEXT,
+  dst_path TEXT,
+  PRIMARY KEY(src_path, dst_path)
+);"""
+
+LINKS_IDX_DDL = "CREATE INDEX idx_links_dst ON links(dst_path)"
 
 _LEGAL_STATUSES = {"active", "deprecated", "candidate"}
 
@@ -145,11 +154,14 @@ def build_index(
     destination.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(destination)
     try:
-        con.executescript(PAGES_DDL + "\n" + META_DDL + "\n" + VEC_DDL)
+        con.executescript(
+            PAGES_DDL + "\n" + META_DDL + "\n" + VEC_DDL + "\n" + LINKS_DDL + "\n" + LINKS_IDX_DDL
+        )
         con.execute("CREATE TABLE lifecycle(path TEXT PRIMARY KEY, deprecated_by TEXT NOT NULL)")
         page_rows = []
         meta_rows = []
         lifecycle_rows = []
+        body_by_path: dict[str, str] = {}
         excluded = {"_legacy-para", "_archive"} | (set() if include_raw else {"raw"})
 
         paths = sorted(wiki.rglob("*.md"), key=lambda p: p.relative_to(wiki).as_posix())
@@ -184,6 +196,8 @@ def build_index(
             scope_id = normalize_id(str(fm.get("scope_id") or "default-project"), "default-project")
             scope_confidence = str(fm.get("scope_confidence") or "low")
             status = str(fm.get("status") or "active")
+            if status == "rejected":
+                continue
             if status == "fresh":
                 status = "active"
             elif status not in _LEGAL_STATUSES:
@@ -197,6 +211,7 @@ def build_index(
             page_rows.append((rel_s, title, ptype, tags, abstract, body,
                               scope, scope_id, scope_confidence, status))
             meta_rows.append((rel_s, updated, last_verified, valid_at, invalid_at))
+            body_by_path[rel_s] = body
             if fm.get("deprecated_by"):
                 lifecycle_rows.append((rel_s, str(fm["deprecated_by"])))
 
@@ -207,6 +222,14 @@ def build_index(
             con.executemany("INSERT INTO pages VALUES(?,?,?,?,?,?,?,?,?,?)", page_rows)
             con.executemany("INSERT INTO meta VALUES(?,?,?,?,?)", meta_rows)
             con.executemany("INSERT INTO lifecycle VALUES(?,?)", lifecycle_rows)
+            stems, bases = build_page_sets(wiki, include_raw=include_raw)
+            indexed = {r[0] for r in page_rows}
+            link_rows = set()
+            for rel_s in indexed:
+                for dst in resolve_outlinks(body_by_path.get(rel_s, ""), stems, bases):
+                    if dst != rel_s and dst in indexed:
+                        link_rows.add((rel_s, dst))
+            con.executemany("INSERT OR IGNORE INTO links VALUES(?,?)", sorted(link_rows))
             if source_db and source_db.is_file():
                 con.execute("ATTACH DATABASE ? AS old", (str(source_db.resolve()),))
                 if con.execute("SELECT 1 FROM old.sqlite_master WHERE type='table' AND name='vec'").fetchone():

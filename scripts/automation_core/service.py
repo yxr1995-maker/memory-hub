@@ -10,6 +10,7 @@ import subprocess
 import sys
 import socket
 import urllib.error
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,6 +154,24 @@ class MemoryService:
     def _load_pages(self) -> dict[str, IndexedPage]:
         return load_page_records(self.db_path) if self.db_path.is_file() else {}
 
+    def _load_links(self) -> dict[str, set[str]]:
+        """Bidirectional adjacency from the links edge table (empty if absent)."""
+        adj: dict[str, set[str]] = defaultdict(set)
+        if not self.db_path.is_file():
+            return {}
+        try:
+            with sqlite3.connect(f"file:{self.db_path.resolve()}?mode=ro", uri=True) as con:
+                if not con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='links'"
+                ).fetchone():
+                    return {}
+                for src, dst in con.execute("SELECT src_path, dst_path FROM links"):
+                    adj[src].add(dst)
+                    adj[dst].add(src)
+        except (sqlite3.Error, OSError):
+            return {}
+        return dict(adj)
+
     def search(self, request: SearchRequest, tau: float = DEFAULT_TAU) -> SearchResponse:
         # Validate request
         if len(request.query) > 500:
@@ -177,7 +196,8 @@ class MemoryService:
                 recalls[f"expansion_{idx}_fts"] = self.recall.fts(term.text, request.top)
 
         pages = self._load_pages()
-        results = rank_results(request, plan, recalls, pages, self.metrics, tau=tau)
+        links = self._load_links()
+        results = rank_results(request, plan, recalls, pages, self.metrics, tau=tau, links=links)
         self.audit.finish(plan, final_hits=len(results))
 
         return SearchResponse(request=request, plan=plan.public_explain(request), results=results)

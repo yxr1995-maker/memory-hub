@@ -21,6 +21,8 @@ from scripts.automation_core.service import MemoryService
   GET    /api/pages?type=&tag=&q=&offset=&limit=   页面列表（frontmatter 元数据，分页）
   GET    /api/page?path=              页面全文 + 解析后的 frontmatter
   POST   /api/page  {path, content}   写入页面（限 wiki 内 .md，≤2MB）
+  GET    /api/pending                 待审池（staging candidate + experience review + wiki candidate）
+  POST   /api/review {source, id, decision}  审批/驳回（candidate|experience|page × approve|reject）
   DELETE /api/page?path=              移入 ~/.memory-hub/trash（可恢复，不真删）
   GET    /api/tags                    标签聚合计数
   GET    /api/observations?q=&project=&offset=&limit=  staging 原始观察（新→旧，分页）
@@ -31,7 +33,9 @@ import socket
 import glob
 import json
 import os
+import pathlib
 import re
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -46,6 +50,8 @@ STAGING = os.environ.get("MEMORY_HUB_STAGING", os.path.join(HUB, "staging"))
 SESSIONS_DIR = os.environ.get("CODEX_SESSIONS_DIR", os.path.expanduser("~/.codex/sessions"))
 MAX_BODY = 2 * 1024 * 1024
 EXCLUDE_DIRS = {"raw", "_legacy-para", "_archive"}
+EXPERIENCE_DB = os.environ.get("MEMORY_HUB_EXPERIENCE_DB",
+                               os.path.join(DATA_DIR, "experience.sqlite3"))
 ACCESS_LOG = os.path.join(DATA_DIR, "access.jsonl")
 ACCESS_MAX = 2 * 1024 * 1024  # 超过则轮转为 .1
 OBSIDIAN_CLI = "/usr/local/bin/obsidian"
@@ -180,6 +186,8 @@ def scan_pages() -> list:
                 except OSError:
                     continue
                 _PAGE_CACHE[rel] = (st.st_mtime, st.st_size, meta)
+            if str(meta.get("status") or "") == "rejected":
+                continue
             tags = meta.get("tags") or []
             if isinstance(tags, str):
                 tags = [tags]
@@ -207,6 +215,93 @@ def safe_wiki_path(rel: str):
     if full.startswith(base + os.sep) and full.endswith(".md"):
         return full
     return None
+
+
+def _staging_candidates() -> list:
+    """staging/pages 下 status: candidate 的页面（待审池来源 a）。"""
+    items = []
+    try:
+        names = sorted(os.listdir(os.path.join(STAGING, "pages")))
+    except OSError:
+        return []
+    for fn in names:
+        if not fn.endswith(".md"):
+            continue
+        full = os.path.join(STAGING, "pages", fn)
+        if not os.path.isfile(full):
+            continue
+        try:
+            with open(full, encoding="utf-8", errors="replace") as f:
+                meta = parse_frontmatter(f.read(65536))
+        except OSError:
+            continue
+        if str(meta.get("status") or "") != "candidate":
+            continue
+        try:
+            created = time.strftime("%Y-%m-%dT%H:%M:%S",
+                                    time.localtime(os.stat(full).st_mtime))
+        except OSError:
+            created = ""
+        items.append({"source": "candidate", "id": fn,
+                      "title": str(meta.get("title") or fn[:-3]),
+                      "abstract": str(meta.get("abstract") or "")[:300],
+                      "created": str(meta.get("created") or created)})
+    return items
+
+
+def _experience_review_items() -> list:
+    """experience 待审条目（来源 b）：只取当前 revision 且事件 active 的行。
+
+    驳回（revoke）会新建 revision 并把事件置 revoked，旧 revision 的
+    review_required=1 标记会保留，因此必须联结 experience_events 当前
+    revision + status='active'，否则已驳回条目永远赖在待审池（M6 评审 #4）。
+    """
+    items = []
+    try:
+        if not os.path.isfile(EXPERIENCE_DB):
+            return []
+        with sqlite3.connect(EXPERIENCE_DB, timeout=5) as conn:
+            rows = conn.execute(
+                "SELECT v.event_id FROM experience_versions v "
+                "JOIN experience_events e ON e.event_id=v.event_id "
+                "AND e.revision=v.revision "
+                "WHERE v.review_required=1 AND e.status='active' "
+                "ORDER BY v.event_id").fetchall()
+            for (event_id,) in rows:
+                prow = conn.execute(
+                    "SELECT payload_json FROM experience_versions "
+                    "JOIN experience_events e ON e.event_id=experience_versions.event_id "
+                    "AND e.revision=experience_versions.revision "
+                    "WHERE experience_versions.event_id=?",
+                    (event_id,)).fetchone()
+                erow = conn.execute(
+                    "SELECT created_at FROM experience_events WHERE event_id=?",
+                    (event_id,)).fetchone()
+                title, abstract = event_id, ""
+                if prow and prow[0]:
+                    try:
+                        pay = json.loads(prow[0])
+                        title = str(pay.get("goal") or event_id)
+                        abstract = str(pay.get("narrative") or "")[:300]
+                    except ValueError:
+                        pass
+                items.append({"source": "experience", "id": event_id,
+                              "title": title, "abstract": abstract,
+                              "created": (erow[0] if erow and erow[0] else "")})
+    except (sqlite3.Error, OSError):
+        return []
+    return items
+
+
+def api_pending() -> dict:
+    """待审池并集：staging candidate + experience review + wiki candidate 页。"""
+    items = _staging_candidates() + _experience_review_items()
+    for p in scan_pages():
+        if p.get("status") == "candidate":
+            items.append({"source": "page", "id": p["path"], "title": p["title"],
+                          "abstract": p.get("abstract") or "",
+                          "created": p.get("updated") or ""})
+    return {"items": items, "total": len(items)}
 
 
 def api_overview() -> dict:
@@ -259,10 +354,18 @@ def api_overview() -> dict:
     except (OSError, ValueError):
         pass
     index_path = os.path.join(DATA_DIR, "index.db")
+    # 待审统计与 /api/pending 同源：总数 + 按来源细分（M6 评审 #7）
+    _pend_items = api_pending()["items"]
+    _pend_by_source: dict = {}
+    for _it in _pend_items:
+        _pend_by_source[_it["source"]] = _pend_by_source.get(_it["source"], 0) + 1
     return {
         "last_operation": operation,
         "index_updated_at": os.path.getmtime(index_path) if os.path.isfile(index_path) else None,
-        "pending_candidates": sum(p.get("status") == "candidate" or p.get("meta", {}).get("status") == "candidate" for p in pages),
+        "pending_candidates": len(_pend_items),
+        "pending_details": {"candidates": _pend_by_source.get("candidate", 0),
+                            "experience_review": _pend_by_source.get("experience", 0),
+                            "pages": _pend_by_source.get("page", 0)},
         "wiki_pages": len(pages),
         "by_type": dict(sorted(by_type.items(), key=lambda kv: -kv[1])),
         "observations_files": len(obs_files),
@@ -904,6 +1007,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(api_calls(q))
         if u.path == "/api/graph":
             return self._json(api_graph(first("include_atoms") in ("1", "true", "yes")))
+        if u.path == "/api/pending":
+            return self._json(api_pending())
         if u.path == "/api/obsidian/graph-shot":
             png, err = obsidian_graph_shot()
             if err:
@@ -911,8 +1016,130 @@ class Handler(BaseHTTPRequestHandler):
             return self._bin(png, "image/png")
         self._json({"error": "not found"}, 404)
 
+    def _do_review(self, payload: dict):
+        """POST /api/review {source, id, decision}：待审池审批/驳回。"""
+        source = str(payload.get("source") or "")
+        rid = str(payload.get("id") or "")
+        decision = str(payload.get("decision") or "")
+        if source not in ("candidate", "experience", "page") \
+                or decision not in ("approve", "reject"):
+            return self._json({"error": "参数非法：source=candidate|experience|page，decision=approve|reject"}, 400)
+        if source == "candidate":
+            if not re.fullmatch(r"[^/]+\.md", rid):
+                return self._json({"error": "candidate id 非法：须为 staging/pages 下的 .md 文件名"}, 400)
+            if decision == "approve":
+                try:
+                    r = subprocess.run(
+                        ["bash", f"{HUB}/scripts/publish.sh", "--apply",
+                         "--accept-candidate", rid],
+                        capture_output=True, text=True, timeout=120)
+                except subprocess.TimeoutExpired:
+                    return self._json({"error": "publish.sh 执行超时"}, 504)
+                except Exception as e:
+                    return self._json({"error": f"执行失败: {e}"}, 500)
+                if r.returncode != 0:
+                    err = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")
+                    return self._json({"error": err}, 500)
+                # publish.sh 成功返回不等于指定页实际发布：校验 staging 已移走、
+                # published 落盘、wiki 目标存在，否则报 500 而不是 200（M6 评审 #2）
+                pub = os.path.join(STAGING, "published", rid)
+                still = os.path.join(STAGING, "pages", rid)
+                if os.path.isfile(still) or not os.path.isfile(pub):
+                    return self._json({"error": "publish.sh 返回成功但指定页未实际发布"}, 500)
+                try:
+                    with open(pub, encoding="utf-8", errors="replace") as f:
+                        _head = f.read(8192)
+                    _tgt_rel = ""
+                    for _line in _head.splitlines():
+                        if _line.startswith("conflict_target:"):
+                            _tgt_rel = _line.split(":", 1)[1].strip().strip("'\"")
+                            break
+                    _tgt = safe_wiki_path(_tgt_rel) if _tgt_rel else None
+                    if not _tgt or not os.path.isfile(_tgt):
+                        return self._json({"error": "publish.sh 返回成功但 wiki 目标页不存在"}, 500)
+                    # 一次审批直接离池：发布成功后把 wiki 目标页置 active，
+                    # 不再要求二次 page approve（收口 #6）。
+                    from scripts.automation_core.frontmatter import parse_page as _parse_page
+                    from scripts.automation_core.frontmatter import patch_frontmatter as _patch_fm
+                    _doc = _parse_page(pathlib.Path(_tgt))
+                    with open(_tgt, "wb") as _fw:
+                        _fw.write(_patch_fm(_doc, {"status": "active"}))
+                except (OSError, ValueError) as e:
+                    return self._json({"error": f"发布后激活失败: {e}"}, 500)
+                _PAGE_CACHE.pop(os.path.relpath(_tgt, os.path.realpath(WIKI)), None)
+                return self._json({"ok": True, "source": source, "id": rid,
+                                   "output": (r.stdout.strip() or "")[-500:]})
+            src = os.path.join(STAGING, "pages", rid)
+            if not os.path.isfile(src):
+                return self._json({"error": "candidate 不存在"}, 404)
+            try:
+                # 拒绝归档永不覆盖旧记录：同名时加时间戳序号后缀（M6 评审 #3）
+                rej_dir = os.path.join(STAGING, "rejected")
+                os.makedirs(rej_dir, exist_ok=True)
+                _dest = os.path.join(rej_dir, rid)
+                if os.path.lexists(_dest):
+                    _stem, _ext = os.path.splitext(rid)
+                    _stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+                    _n = 1
+                    while os.path.lexists(_dest):
+                        _dest = os.path.join(rej_dir, f"{_stem}-{_stamp}-{_n}{_ext}")
+                        _n += 1
+                os.replace(src, _dest)
+                _moved = os.path.join("staging/rejected", os.path.basename(_dest))
+            except OSError as e:
+                return self._json({"error": f"移动失败: {e}"}, 500)
+            return self._json({"ok": True, "source": source, "id": rid,
+                               "moved": _moved})
+        if source == "experience":
+            try:
+                if decision == "approve":
+                    from scripts.automation_core.experience.store import clear_review_required
+                    res = clear_review_required(EXPERIENCE_DB, rid)
+                else:
+                    from scripts.automation_core.experience.revisions import review_revoke
+                    res = review_revoke(EXPERIENCE_DB, rid)
+            except Exception as e:
+                return self._json({"error": f"experience {decision} 失败: {e}"}, 500)
+            return self._json({"ok": True, "source": source, "id": rid, "result": res})
+        full = safe_wiki_path(rid)
+        if not full or not os.path.isfile(full):
+            return self._json({"error": "页面不存在或路径非法"}, 404)
+        # page+approve 仅 candidate 页可转 active（离池）；page+reject 是普通 wiki
+        # 在售页的合法入口（plan 原义），任意状态页都可标记 rejected。
+        target_status = "active" if decision == "approve" else "rejected"
+        try:
+            from scripts.automation_core.frontmatter import parse_page, patch_frontmatter
+            cur = parse_page(pathlib.Path(full))
+            cur_status = str((cur.frontmatter or {}).get("status") or "active")
+            if decision == "approve" and cur_status != "candidate":
+                return self._json(
+                    {"error": f"仅 candidate 状态的 wiki 页可通过（当前 status={cur_status}）"}, 400)
+            new_bytes = patch_frontmatter(cur, {"status": target_status})
+            with open(full, "wb") as f:
+                f.write(new_bytes)
+        except (OSError, ValueError) as e:
+            return self._json({"error": f"标记 {target_status} 失败: {e}"}, 500)
+        rel = os.path.relpath(full, os.path.realpath(WIKI))
+        _PAGE_CACHE.pop(rel, None)
+        self._mh_refs = [rel]
+        return self._json({"ok": True, "source": source, "id": rel})
+
     def _do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/review":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length > MAX_BODY:
+                return self._json({"error": "请求体过大（>2MB）"}, 413)
+            try:
+                payload = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                return self._json({"error": "JSON 解析失败"}, 400)
+            if not isinstance(payload, dict):
+                return self._json({"error": "JSON 解析失败"}, 400)
+            return self._do_review(payload)
         if u.path == "/api/page":
             try:
                 length = int(self.headers.get("Content-Length") or 0)

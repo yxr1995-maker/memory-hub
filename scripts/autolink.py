@@ -28,12 +28,15 @@ WIKI = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki")))
 STAGING_PAGES = HUB / "staging" / "pages"
 
 FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
-LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]{3,}|[一-鿿]{2,}")
 STOPWORDS = {
     "the", "and", "for", "with", "from", "this", "that", "memoryhub",
     "llm-wiki", "wiki", "page", "note", "concept", "memory",
 }
+try:
+    from scripts.automation_core.links import LINK_RE, build_page_sets, resolve_outlinks
+except ImportError:  # invoked directly as scripts/autolink.py
+    from automation_core.links import LINK_RE, build_page_sets, resolve_outlinks
 # 只把主目录页作为链接目标（raw/atoms/_archive 是素材与历史，不做目标）
 TARGET_DIRS = ("entities", "concepts", "comparisons", "queries", "decisions",
                "communities", "failures", "moc")
@@ -76,15 +79,14 @@ def parse_fm(text):
 
 
 def valid_outlinks(text, stems, bases, self_stem):
-    body = re.sub(r"```.*?```", "", text, flags=re.S)
-    body = re.sub(r"`[^`]*`", "", body)
-    hits = set()
-    for m in LINK_RE.finditer(body):
-        t = m.group(1).strip()
-        hit = stems.get(t.lower()) or bases.get(os.path.basename(t).lower())
-        if hit and hit != self_stem:
-            hits.add(hit)
-    return hits
+    # stems/bases values are relative .md paths (see links.build_page_sets);
+    # callers keep the legacy suffix-less stem form for backlink writing.
+    self_md = self_stem if self_stem.endswith(".md") else self_stem + ".md"
+    return {
+        hit[:-3] if hit.endswith(".md") else hit
+        for hit in resolve_outlinks(text, stems, bases)
+        if hit != self_md
+    }
 
 
 def l1_candidates(fm, self_stem, tag_index, word_index, limit=3):
@@ -147,11 +149,12 @@ def main():
     ap.add_argument("--no-semantic", action="store_true", help="只用 L1 规则匹配")
     args = ap.parse_args()
 
-    pages = wiki_pages()
-    stems = {p.lower(): p for p in pages}
-    bases = {}
-    for p in pages:
-        bases.setdefault(os.path.basename(p).lower(), p)
+    stems, bases = build_page_sets(WIKI, dirs=TARGET_DIRS)
+    for extra in ("index", "log"):
+        if (WIKI / f"{extra}.md").is_file():
+            stems.setdefault(extra, f"{extra}.md")
+            bases.setdefault(extra, f"{extra}.md")
+    pages = sorted({v[:-3] if v.endswith(".md") else v for v in stems.values()})
     TARGET_PREFIXES.update(pages)
 
     tag_index, word_index = {}, {}

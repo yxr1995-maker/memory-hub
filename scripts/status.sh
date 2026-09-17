@@ -34,17 +34,33 @@ LATEST_OBS="$(ls -t "$STAGING"/observations-*.jsonl 2>/dev/null | head -1 || tru
 if [[ -n "${LATEST_OBS:-}" ]]; then
   echo "  最新观察: $(basename "$LATEST_OBS") ($(wc -l < "$LATEST_OBS" | tr -d ' ') 条)"
 fi
+N_PEND_CAND=0
+if ls "$STAGING"/pages/*.md >/dev/null 2>&1; then
+  # 无匹配时 grep 退出 1：用 || true 吞掉，保证 pipefail 下 exit 0（M6 评审 #5）
+  N_PEND_CAND="$({ grep -l '^status: candidate' "$STAGING"/pages/*.md 2>/dev/null || true; } | wc -l | tr -d ' ')"
+fi
+echo "待审候选(staging/pages): ${N_PEND_CAND:-0}"
+DATA_DIR_DEFAULT="${MEMORY_HUB_DATA:-${HOME:-}/.memory-hub}"
+EXP_DB="${MEMORY_HUB_EXPERIENCE_DB:-$DATA_DIR_DEFAULT/experience.sqlite3}"
+if [[ -f "$EXP_DB" ]]; then
+  # 只计当前 revision 且事件 active，与 /api/pending 同口径（M6 评审 #4）
+  N_EXP_REV="$(sqlite3 "$EXP_DB" 'SELECT count(*) FROM experience_versions v JOIN experience_events e ON e.event_id=v.event_id AND e.revision=v.revision WHERE v.review_required=1 AND e.status='"'"'active'"'"';' 2>/dev/null || echo '?')"
+  echo "待审经验(experience review_required): ${N_EXP_REV}"
+else
+  echo "待审经验(experience review_required): 0(无库)"
+fi
 # 3. ~/llm-wiki
 if [[ -d "$WIKI" ]]; then
   N_PAGES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
   echo "llm-wiki页面: ${N_PAGES}"
   # wiki 健康摘要
   TOKEN_RES="$(python3 "$HUB_DIR/scripts/verify_tokens.py" "$WIKI" || true)"
-  TOKEN_HITS="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2)"
+  TOKEN_HITS="$(echo "$TOKEN_RES" | grep '^token_hits=' | cut -d= -f2 || true)"
   DEAD_RES="$(cd "$WIKI" && python3 .scripts/fix_deadlinks.py 2>&1 || true)"
   DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^未解\/多候选:/ {print $2}')"
   RAW_DEAD_N="$(echo "$DEAD_RES" | awk -F': ' '/^raw 区死链:/ {print $2}')"
-  MH_N="$(find "$WIKI/concepts" "$WIKI/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ')"
+  # concepts/queries 可能不存在：find 非零退出会被 pipefail 放大，加 || true（M6 评审 #5 同类）
+  MH_N="$(find "$WIKI/concepts" "$WIKI/queries" -maxdepth 1 -type f -name '*memoryhub*' -o -name '*obse-rv-at-memoryhub*' 2>/dev/null | wc -l | tr -d ' ' || true)"
   echo "  健康: token命中=${TOKEN_HITS:-0} 死链=${DEAD_N:-?}(raw=${RAW_DEAD_N:-?}) concepts/queries-memoryhub=${MH_N:-0}"
   echo "  最近更新:"
   { find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' -print0 2>/dev/null \

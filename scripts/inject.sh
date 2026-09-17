@@ -40,7 +40,7 @@ args=(search "" --json --top 5)
   echo ""
   echo "## 知识库最近更新（~/llm-wiki）"
   if [[ -d "$WIKI" ]]; then
-    RECENT_LINES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -5 || true)"
+    RECENT_LINES="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' ! -exec grep -Eq "^status: +'?rejected'?" {} \; -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -5 || true)"
     if [[ -n "$RECENT_LINES" ]]; then
       while IFS= read -r f; do
         rel="${f#$WIKI/}"
@@ -56,7 +56,7 @@ args=(search "" --json --top 5)
   echo ""
   echo "## 统计"
   if [[ -d "$WIKI" ]]; then
-    N="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ')"
+    N="$(find "$WIKI" -name '*.md' -not -path '*/raw/*' -not -path '*/_legacy-para/*' -not -path '*/_archive/*' ! -exec grep -Eq "^status: +'?rejected'?" {} \; 2>/dev/null | wc -l | tr -d ' ')"
     echo "- 知识库页面: ${N}"
   fi
 } > "$OUT"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -15,6 +16,8 @@ from .query_planner import QueryPlan, SearchRequest
 
 K_RRF = 60
 DEFAULT_TAU = 90.0
+NEIGHBOR_BETA = float(os.environ.get("MEMORY_HUB_NEIGHBOR_BETA", "0.15"))
+from .staleness import STALE_DAYS, STALE_FACTOR
 
 _CONFIDENCE_ORDER = {"high": 3, "medium": 2, "low": 1}
 _STATUS_ORDER = {"active": 4, "candidate": 3, "lifecycle_error": 2, "deprecated": 1}
@@ -183,6 +186,7 @@ def rank_results(
     pages: Mapping[str, IndexedPage],
     metrics: MetricSink | None = None,
     tau: float = DEFAULT_TAU,
+    links: Mapping[str, Sequence[str]] | None = None,
 ) -> tuple[SearchResult, ...]:
     if metrics is None:
         metrics = NullMetrics()
@@ -210,6 +214,35 @@ def rank_results(
                 "via": res.via,
             }
 
+    # One-hop neighbor injection: after successor folding, before scoring.
+    # Neighbors are canonicalized first; missing pages are skipped (no
+    # unknown placeholders). Multi-source neighbors take max contribution.
+    if links and NEIGHBOR_BETA > 0:
+        neighbor_best: dict[str, float] = {}
+        for target, base_score in list(target_scores.items()):
+            for neighbor in links.get(target, ()):
+                nb_res = resolve_successor(neighbor, pages)
+                if nb_res.cycle:
+                    continue
+                canon = nb_res.resolved_path
+                if canon == target or canon not in pages:
+                    continue
+                contrib = NEIGHBOR_BETA * base_score
+                if contrib > neighbor_best.get(canon, 0.0):
+                    neighbor_best[canon] = contrib
+        for canon, contrib in neighbor_best.items():
+            if canon in target_scores:
+                target_scores[canon] += contrib
+            else:
+                target_scores[canon] = contrib
+                nb_res = resolve_successor(canon, pages)
+                target_resolutions[canon] = nb_res
+                target_reasons[canon] = {
+                    "base_score": round(contrib, 4),
+                    "status": nb_res.status,
+                    "via": "neighbor",
+                }
+
     valid_candidates: list[SearchResult] = []
     error_candidates: list[SearchResult] = []
 
@@ -233,6 +266,9 @@ def rank_results(
         if tau and tau > 0 and ts is not None:
             decay_factor = math.exp(-max(0.0, (now_epoch - ts) / 86400.0) / tau)
             score *= decay_factor
+        stale_ts = _parse_ts(page.last_verified or page.valid_at or page.updated)
+        if stale_ts is not None and (now_epoch - stale_ts) / 86400.0 > STALE_DAYS:
+            score *= STALE_FACTOR
 
         res = target_resolutions.get(target_path, LifecycleResolution(target_path, target_path, page.status))
         reason = target_reasons.get(target_path, {"base_score": round(base_score, 4), "status": res.status, "via": res.via})

@@ -82,6 +82,10 @@ fi
 
 shopt -s nullglob
 PAGES=("$PAGES_DIR"/*.md)
+if [[ -n "$ACCEPT_CANDIDATE" ]]; then
+  # 显式单条审批：只处理指定文件，不连带发布其他 staging 页（M6 评审 #2）
+  PAGES=("$PAGES_DIR/$ACCEPT_CANDIDATE")
+fi
 [[ ${#PAGES[@]} -gt 0 ]] || { echo "publish: 无待发布页面"; exit 0; }
 
 REQUIRED_FIELDS="title type created tags sources abstract"

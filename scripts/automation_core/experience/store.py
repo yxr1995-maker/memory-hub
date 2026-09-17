@@ -211,3 +211,13 @@ def record(db_path,ctx,payload,idempotency_key):
         c.execute('INSERT INTO experience_versions(event_id,revision,payload_json,source_kind) VALUES(?,1,?,?)',(event_id,encoded,payload['source_kind']))
         index_version(c,event_id,payload)
         return receipt
+
+
+def clear_review_required(db_path, event_id):
+    """Approve a pending episode: clear review_required on all its revisions."""
+    text(event_id, limit=200)
+    with connect(db_path, write=True) as c:
+        row = c.execute('SELECT 1 FROM experience_events WHERE event_id=?', (event_id,)).fetchone()
+        require(row is not None, 'unknown episode', 'SOURCE_MISSING')
+        c.execute('UPDATE experience_versions SET review_required=0 WHERE event_id=?', (event_id,))
+        return {'event_id': event_id, 'review_required': 0}

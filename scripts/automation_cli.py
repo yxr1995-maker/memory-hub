@@ -172,6 +172,19 @@ def _maintain(args: argparse.Namespace) -> int:
         lock.release()
     if report.error:
         print(f"maintain: {report.error}", file=sys.stderr)
+    try:
+        from scripts.server import api_pending
+        _pend = api_pending()
+        _nc = sum(1 for _i in _pend["items"] if _i["source"] == "candidate")
+        _ne = sum(1 for _i in _pend["items"] if _i["source"] == "experience")
+        # 与 /api/pending + /api/overview 同源的待审计数（M6 评审 #7）。
+        # report.counts 由 orchestrator.OperationReport（frozen，他人文件）构造，
+        # 本层只做 stdout 机器可读行，不改 report 结构。
+        _np = sum(1 for _i in _pend["items"] if _i["source"] == "page")
+        print(f"maintain: pending candidates={_nc} experience_review={_ne} pages={_np} "
+              f"total={len(_pend['items'])}")
+    except Exception as exc:
+        print(f"maintain: pending 计数不可用: {exc}", file=sys.stderr)
     return 0 if report.result in ("committed", "applied_no_commit", "safe") else 1
 
 

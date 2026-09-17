@@ -3,8 +3,20 @@ from pathlib import Path
 import hashlib
 import json
 import uuid
-from .contracts import require, text, validate_payload, check_artifacts
+from .contracts import AccessContext, require, text, validate_payload, check_artifacts
 from .store import connect, dumps, event_row, validate_links, index_version
+
+
+def review_revoke(db_path, target_id, reason='rejected via /api/review'):
+    """Reject a pending episode: revoke it under a review-scoped owner context."""
+    text(target_id, limit=200)
+    text(reason)
+    with connect(db_path) as c:
+        row = c.execute('SELECT collection_id, revision FROM experience_events WHERE event_id=?', (target_id,)).fetchone()
+        require(row is not None, 'unknown episode', 'SOURCE_MISSING')
+        collection_id, revision = row[0], int(row[1])
+    ctx = AccessContext(subject_id='review-api', allowed_collections=(collection_id,), role='owner')
+    return revoke(db_path, ctx, target_id=target_id, base_revision=revision, reason=reason)
 
 
 def owner(ctx):require(ctx.role=='owner','management entry required','ACCESS_DENIED')

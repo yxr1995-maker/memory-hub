@@ -388,6 +388,7 @@
   const TABS = [
     ["overview", "概览"], ["calls", "调用日志"], ["live", "实时上下文"],
     ["obsidian", "Obsidian"], ["tags", "标签"], ["status", "状态"],
+    ["pending", "待审"],
   ];
 
   function buildPanel() {
@@ -488,7 +489,7 @@
     stopLivePoll();  // 离开页签时停掉轮询与图谱渲染循环
     stopGraph();
     ({ overview: viewOverview, calls: viewCalls, live: viewLive, obsidian: viewObsidian,
-       tags: viewTags, status: viewStatus }[tab] || viewOverview)();
+       tags: viewTags, status: viewStatus, pending: viewPending }[tab] || viewOverview)();
   }
 
   // 页签计数徽标（页面总数加载后显示）
@@ -540,6 +541,48 @@
   // ============================================================
   // 区域 9/14：视图「记忆页面」— 过滤 / 分页表格 / 新建
   // ============================================================
+  const PENDING_SOURCE_LABEL = { candidate: "候选页", experience: "经验", page: "Wiki 页" };
+
+  async function viewPending() {
+    showLoading();
+    let d;
+    try { d = await api("/api/pending"); }
+    catch (e) { return showError(e, viewPending); }
+    const items = (d && Array.isArray(d.items) ? d.items : []);
+    if (!items.length) {
+      contentEl.innerHTML = emptyHtml("✅", "暂无待审条目",
+        "staging 候选页与待复核经验会显示在这里");
+      return;
+    }
+    contentEl.innerHTML = `
+      <div class="toolbar"><button class="btn" data-role="refresh">刷新</button>
+        <span style="color:var(--mut);font-size:12px">共 ${items.length} 条待审</span></div>
+      <table><thead><tr><th>来源</th><th>标题 / ID</th><th>摘要</th><th>操作</th></tr></thead>
+      <tbody>${items.map((it, i) => `<tr>
+        <td><span class="badge">${esc(PENDING_SOURCE_LABEL[it.source] || it.source || "")}</span></td>
+        <td><div>${esc(it.title || it.id || "")}</div><div class="sub mono">${esc(it.id || "")}</div></td>
+        <td>${esc((it.abstract || "").slice(0, 160))}</td>
+        <td style="white-space:nowrap">
+          <button class="btn primary" data-a="approve" data-i="${i}">通过</button>
+          <button class="btn" data-a="reject" data-i="${i}">驳回</button>
+        </td></tr>`).join("")}</tbody></table>`;
+    contentEl.querySelector('[data-role="refresh"]').addEventListener("click", viewPending);
+    contentEl.querySelectorAll('button[data-a]').forEach((b) =>
+      b.addEventListener("click", async () => {
+        const it = items[Number(b.dataset.i)];
+        b.disabled = true;
+        try {
+          await api("/api/review", { method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: it.source, id: it.id, decision: b.dataset.a }) });
+          toast((b.dataset.a === "approve" ? "已通过 ✓" : "已驳回 ✓") + " " + it.id, 2600, "ok");
+        } catch (e) {
+          toast("操作失败：" + e.message, 4000, "err");
+        }
+        viewPending();
+      }));
+  }
+
   let pagesRoot = null;
   async function viewPages(root) {
     pagesRoot = root || contentEl;
