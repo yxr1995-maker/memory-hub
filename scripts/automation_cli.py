@@ -9,6 +9,7 @@ if _ROOT not in sys.path:
 import argparse
 import json
 import os
+import subprocess
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,27 @@ def _get_service() -> MemoryService:
     wiki = Path(os.environ.get("WIKI_PATH", str(Path.home() / "llm-wiki"))).resolve()
     data = Path(os.environ.get("MEMORY_HUB_DATA", str(Path.home() / ".memory-hub"))).resolve()
     return MemoryService(wiki, data, hub)
+
+
+def _trigger_incremental_embed(wiki: Path, data: Path) -> None:
+    """Task B: 成功管道末尾触发一次增量向量索引。
+
+    只走 subprocess 调 scripts/embed.py index（增量，跳过已嵌入页）；
+    显式透传 WIKI_PATH/MEMORY_HUB_DATA；timeout=60；失败只 stderr warn，
+    绝不改变调用方退出码。调用方负责 --safe 不触发。"""
+    cmd = [sys.executable, str(Path(__file__).resolve().parent / "embed.py"), "index"]
+    env = dict(os.environ, WIKI_PATH=str(wiki), MEMORY_HUB_DATA=str(data))
+    try:
+        proc = subprocess.run(cmd, env=env, timeout=60, capture_output=True, text=True)
+    except Exception as exc:
+        print(f"embed: 增量索引未触发（已忽略）: {exc}", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        print(
+            f"embed: 增量索引退出码 {proc.returncode}（已忽略）: "
+            f"{(proc.stderr or '').strip()[-500:]}",
+            file=sys.stderr,
+        )
 
 
 def _scope_backfill(args: argparse.Namespace) -> int:
@@ -185,7 +207,11 @@ def _maintain(args: argparse.Namespace) -> int:
               f"total={len(_pend['items'])}")
     except Exception as exc:
         print(f"maintain: pending 计数不可用: {exc}", file=sys.stderr)
-    return 0 if report.result in ("committed", "applied_no_commit", "safe") else 1
+    ok = report.result in ("committed", "applied_no_commit", "safe")
+    if ok and opts.apply:
+        # Task B: 成功 apply 后增量嵌入；safe 模式 opts.apply 为 False，不触发。
+        _trigger_incremental_embed(wiki, data)
+    return 0 if ok else 1
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -220,7 +246,11 @@ def _run(args: argparse.Namespace) -> int:
         report = run_pipeline(tx, RunStageRunner(llm=args.llm))
     finally:
         lock.release()
-    return 0 if report.result in ("committed", "applied_no_commit", "safe") else 1
+    ok = report.result in ("committed", "applied_no_commit", "safe")
+    if ok and opts.apply:
+        # Task B: 成功 apply 后增量嵌入；safe 模式 opts.apply 为 False，不触发。
+        _trigger_incremental_embed(wiki, data)
+    return 0 if ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
