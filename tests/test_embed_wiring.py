@@ -40,7 +40,7 @@ def _spy(mp, **kw):
     mp.setattr(cli.subprocess, "run", s)
     return s
 
-def test_run_apply_triggers_embed(tmp_path, monkeypatch):
+def test_run_apply_triggers_embed(tmp_path, monkeypatch, capsys):
     w, d = _dirs(tmp_path, monkeypatch)
     _pipe(monkeypatch, "run_pipeline", "committed")
     s = _spy(monkeypatch)
@@ -52,6 +52,7 @@ def test_run_apply_triggers_embed(tmp_path, monkeypatch):
     assert c["env"]["WIKI_PATH"] == w
     assert c["env"]["MEMORY_HUB_DATA"] == d
     assert c["timeout"] == 60
+    assert "embed:" in capsys.readouterr().err
 
 def test_maintain_apply_triggers_embed(tmp_path, monkeypatch):
     _dirs(tmp_path, monkeypatch)

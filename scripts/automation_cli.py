@@ -48,6 +48,8 @@ def _trigger_incremental_embed(wiki: Path, data: Path) -> None:
             f"{(proc.stderr or '').strip()[-500:]}",
             file=sys.stderr,
         )
+    else:
+        print("embed: 增量索引完成", file=sys.stderr)
 
 
 def _scope_backfill(args: argparse.Namespace) -> int:
