@@ -20,7 +20,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_hook_entry.py\" UserPromptSubmit",
             "commandWindows": "python \"%PLUGIN_ROOT%\\hooks\\codex_hook_entry.py\" UserPromptSubmit",
-            "timeout": 3,
+            "timeout": 8,
             "statusMessage": "memory-hub: 召回相关记忆"
           }
         ]

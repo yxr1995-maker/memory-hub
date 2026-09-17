@@ -85,10 +85,10 @@ def test_recall_blocks_instruction_payload_and_limits_budget(tmp_path):
 
 def test_timeout_is_fail_open(tmp_path,monkeypatch):
     import time
-    monkeypatch.setattr(cm,'_recall',lambda *args: time.sleep(2))
+    monkeypatch.setattr(cm,'_recall',lambda *args: time.sleep(7))
     start=time.monotonic()
     assert cm.dispatch({'hook_event_name':'UserPromptSubmit','prompt':'x'},tmp_path/'d',tmp_path)=={}
-    assert time.monotonic()-start<1.1
+    assert time.monotonic()-start<6.0
 
 
 def test_equal_relevance_prefers_current_project(tmp_path):
@@ -219,16 +219,14 @@ def test_json_whitespace_carriage_return_is_not_a_jsonl_boundary(tmp_path):
     with cm.connect(data) as c:assert c.execute('select count(*) from queue').fetchone()[0]==1
 
 
-def test_recall_never_calls_network_or_vector_and_excludes_retired(tmp_path,monkeypatch):
+def test_recall_allows_local_vector_but_never_network_and_excludes_retired(tmp_path,monkeypatch):
     from scripts.automation_core.indexer import atomic_rebuild_index
-    from scripts.automation_core.service import SqliteRecallBackend
     import urllib.request
     wiki=tmp_path/'wiki';wiki.mkdir();data=tmp_path/'data'
     for name,status in [('active','fresh'),('retired','deprecated'),('draft','candidate')]:
         (wiki/(name+'.md')).write_text(f'---\ntitle: chromatic preference\ntype: decision\nstatus: {status}\n---\nChromatic report theme\n')
     atomic_rebuild_index(wiki,data)
     def forbidden(*a,**k):raise AssertionError('foreground external work forbidden')
-    monkeypatch.setattr(SqliteRecallBackend,'vector',forbidden)
     monkeypatch.setattr(urllib.request,'urlopen',forbidden)
     result=cm.dispatch({'hook_event_name':'UserPromptSubmit','prompt':'chromatic'},data,wiki)
     text=result['hookSpecificOutput']['additionalContext']
@@ -266,7 +264,7 @@ def test_recall_budget_preserves_complete_source_headers(tmp_path):
     assert context
     for line in context.splitlines():
         if line.startswith('来源:'):assert '; 状态: active' in line and '.md;' in line
-    assert len(context.encode())<=1200
+    assert len(context.encode())<=3000
 
 
 def test_redaction_is_idempotent_and_generic_review_has_no_recall(tmp_path):

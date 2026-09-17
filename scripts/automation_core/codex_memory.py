@@ -216,15 +216,22 @@ def _recall(payload: dict, data: Path, wiki: Path) -> str:
     query=clean_text(str(payload.get('prompt','')))[:500]
     compact_query=re.sub(r'[\s，。？！?!.]','',query)
     if not compact_query or re.fullmatch(r'(?i)(?:review|请|帮我|一下|这次|本次|更新点|更新|成功|继续|研究|是否|有|新的|新|了|吗|看看|现在|完成|好了)+',compact_query):return ''
-    local_hits=service.recall.fts(query,20)
-    local_scores={h.path:h.score for h in local_hits}
-    service._load_pages=lambda: load_page_records(data/'index.db',[h.path for h in local_hits])
-    response=service.search(SearchRequest(query=query,top=20,expand=False,fuse=False))
+    cand_paths: list[str]=[]
+    _orig_fts, _orig_vec = service.recall.fts, service.recall.vector
+    def _rec_fts(q, limit=12):
+        hits=_orig_fts(q,limit);cand_paths.extend(h.path for h in hits);return hits
+    def _rec_vec(q, limit=12):
+        hits=_orig_vec(q,limit);cand_paths.extend(h.path for h in hits);return hits
+    service.recall.fts=_rec_fts;service.recall.vector=_rec_vec
+    service._load_pages=lambda: load_page_records(data/'index.db',list(dict.fromkeys(cand_paths))) if cand_paths else {}
+    try:
+        response=service.search(SearchRequest(query=query,top=20,expand=False,fuse=True))
+    except Exception:
+        response=service.search(SearchRequest(query=query,top=20,expand=False,fuse=False))
     pages=load_page_records(data/'index.db',[r.path for r in response.results])
     parts=[]
     project=project_identity(str(payload.get('cwd') or '.'))
-    ranked=sorted(response.results,key=lambda r:(round(local_scores.get(r.path,0),5),
-                  0 if pages.get(r.path) and pages[r.path].scope_id==project else 1))
+    ranked=sorted(response.results,key=lambda r:(0 if pages.get(r.path) and pages[r.path].scope_id==project else 1,))
     for hit in ranked:
         page=pages.get(hit.path)
         if not page or page.status not in ('active','fresh') or any(part in ('drafts','candidates','staging') for part in Path(hit.path).parts) or unsafe_instruction(page.content):continue
@@ -246,7 +253,7 @@ def _recall(payload: dict, data: Path, wiki: Path) -> str:
     for part in parts:
         header,_,excerpt=part.partition('\n')
         prefix='\n\n'+header+'\n'
-        available=1200-len((body+prefix+closing).encode('utf-8'))
+        available=3000-len((body+prefix+closing).encode('utf-8'))
         if available<24:break
         excerpt=excerpt.encode('utf-8')[:available].decode('utf-8',errors='ignore')
         body+=prefix+excerpt
@@ -262,7 +269,7 @@ def dispatch(payload: dict, data: Path, wiki: Path) -> dict:
     try:
         if event in ('UserPromptSubmit','Stop','SessionEnd'):
             old_handler=signal.signal(signal.SIGALRM,expired)
-            signal.setitimer(signal.ITIMER_REAL,0.8 if event=='UserPromptSubmit' else 2.5)
+            signal.setitimer(signal.ITIMER_REAL,5.0 if event=='UserPromptSubmit' else 2.5)
         if event=='SessionStart' and cfg['recall']:
             result={'hookSpecificOutput':{'hookEventName':event,'additionalContext':RULES}};status='rules'
         elif event=='UserPromptSubmit' and cfg['recall']:
