@@ -38,8 +38,13 @@ class ClusterObservation:
     cwd_hash: str = ""
 
 
-def member_link(member: ClusterObservation) -> str | None:
-    """Resolve a member to a wikilink target, or None when it must degrade."""
+def member_link(member: ClusterObservation, is_page=None) -> str | None:
+    """Resolve a member to a wikilink target, or None when it must degrade.
+
+    is_page, when given, gates the candidate: unresolvable targets degrade
+    to the short-hash form instead of producing a dead link.
+    """
+    candidate = None
     src = (member.source_uri or "").strip()
     if src:
         target = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]*", "", src).lstrip("/")
@@ -50,19 +55,45 @@ def member_link(member: ClusterObservation) -> str | None:
         if target.endswith(".md"):
             target = target[:-3]
         if target:
-            return target
-    for match in _LINK_RE.finditer(member.text):
-        target = match.group(1).strip()
-        if target and not any(ch in _SHELL_CHARS for ch in target):
-            return target
-    return None
+            candidate = target
+    if candidate is None:
+        for match in _LINK_RE.finditer(member.text):
+            target = match.group(1).strip()
+            if target and not any(ch in _SHELL_CHARS for ch in target):
+                candidate = target
+                break
+    if candidate is None:
+        return None
+    if is_page is not None and not is_page(candidate):
+        return None
+    return candidate
 
 
-def classify_cluster_target(target: Path, content: bytes, entry: ManifestEntry | None) -> str:
-    """Return 'write' | 'idempotent' | 'manual' for a cluster page target.
+_TIMESTAMP_PREFIXES = (b"created:", b"updated:", b"valid_at:")
 
-    Never overwrites: identical auto pages replay as idempotent, anything
-    else that already exists is treated as manually edited and skipped.
+
+def _frontmatter_head(raw: bytes) -> bytes:
+    if not raw.startswith(b"---\n"):
+        return b""
+    idx = raw.find(b"\n---\n", 3)
+    return raw[:idx] if idx >= 0 else raw
+
+
+def _strip_cluster_timestamps(raw: bytes) -> bytes:
+    head = _frontmatter_head(raw)
+    if not head:
+        return raw
+    kept = [ln for ln in head.split(b"\n") if not ln.strip().startswith(_TIMESTAMP_PREFIXES)]
+    return b"\n".join(kept) + raw[len(head):]
+
+
+def classify_cluster_target(target: Path, content: bytes, entry: ManifestEntry | None = None) -> str:
+    """Return 'write' | 'idempotent' | 'rewrite' | 'manual' for a cluster target.
+
+    Timestamp-only drift on a generator-marked page replays as idempotent
+    (no write, no report). A generator-marked page with substantive changes
+    is machine-owned and safe to regenerate. Anything without the generator
+    marker is treated as manually edited: skip and report.
     """
     if not target.exists():
         return "write"
@@ -72,18 +103,16 @@ def classify_cluster_target(target: Path, content: bytes, entry: ManifestEntry |
         return "manual"
     if current == content:
         return "idempotent"
-    if ("generator: " + GENERATOR).encode() not in current:
+    head = _frontmatter_head(current)
+    if ("generator: " + GENERATOR).encode() not in head:
         return "manual"
-    if entry is not None and entry.created_at:
-        try:
-            created = datetime.fromisoformat(entry.created_at)
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            if datetime.fromtimestamp(target.stat().st_mtime, timezone.utc) > created:
-                return "manual"
-        except (ValueError, OSError):
+    if entry is not None:
+        match = re.search(rb"^cluster_key:\s*(\S+)", head, re.MULTILINE)
+        if match and match.group(1).decode() != entry.cluster_key:
             return "manual"
-    return "manual"
+    if _strip_cluster_timestamps(current) == _strip_cluster_timestamps(content):
+        return "idempotent"
+    return "rewrite"
 
 
 @dataclass(frozen=True)
@@ -292,7 +321,7 @@ def cluster_observations(
     return tuple(sorted(plans, key=lambda p: p.key))
 
 
-def render_merge_page(cluster: ClusterPlan, now: datetime | None = None) -> bytes:
+def render_merge_page(cluster: ClusterPlan, now: datetime | None = None, is_page=None) -> bytes:
     if now is None:
         now = datetime.now(timezone.utc)
     now_iso = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -321,7 +350,7 @@ def render_merge_page(cluster: ClusterPlan, now: datetime | None = None) -> byte
         "## 观察明细",
     ]
     for m in cluster.members:
-        link = member_link(m)
+        link = member_link(m, is_page)
         if link:
             frontmatter.append(f"- [[{link}]] ({m.created_at_date}) {m.text}")
         else:

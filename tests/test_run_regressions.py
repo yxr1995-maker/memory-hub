@@ -93,8 +93,17 @@ def test_pipeline_failure_restores_cluster_and_index(tmp_path, monkeypatch, exis
     key = hashlib.sha256('obs-0\nobs-1\nobs-2'.encode()).hexdigest()[:16]
     target = fx.wiki / f'moc/cluster-{key}.md'
     if existing:
+        from scripts.automation_core.cluster import GENERATOR, render_merge_page
+        from scripts.automation_core.orchestrator import cluster_observations as _cluster_obs
+        from scripts.automation_core.orchestrator import scan_observations as _scan_obs
+        from scripts.automation_core.orchestrator import load_manifest as _load_manifest
+        obs = _scan_obs(fx.staging, _load_manifest(fx.data / 'cluster-manifest.json'))
+        stale = render_merge_page(_cluster_obs(obs)[0])
+        head, _, tail = stale.partition(b"\n---\n")
+        stale_body = head + b"\nold_note: 'user tuned this page by hand'\n" + b"\n---\n" + tail
+        assert b"generator: " + GENERATOR.encode() in stale_body  # stale auto page -> rewrite path
         target.parent.mkdir()
-        target.write_text('Original content before failed operation\n')
+        target.write_bytes(stale_body)
         atomic_rebuild_index(fx.wiki, fx.data)
     before_pages = {str(p): p.read_bytes() for p in fx.wiki.rglob('*.md')}
     index = fx.data / 'index.db'
@@ -107,9 +116,12 @@ def test_pipeline_failure_restores_cluster_and_index(tmp_path, monkeypatch, exis
     tx.failure_hook = fail
     report = run_pipeline(tx, runner)
     if existing:
-        assert target.read_bytes() == b'Original content before failed operation\n'
-        payload = json.loads((fx.data / 'reports' / 'latest-operation.json').read_text())
-        assert target.relative_to(fx.wiki).as_posix() in payload['stage_data']['aggregate']['skipped']
+        assert report.result == 'failed'
+        assert report.error == 'injected manifest failure'
+        assert target.read_bytes() == stale_body
+        assert {str(p): p.read_bytes() for p in fx.wiki.rglob('*.md')} == before_pages
+        assert (index.read_bytes() if index.exists() else None) == before_index
+        assert not (fx.data / 'cluster-manifest.json').exists()
         return
     assert report.result == 'failed'
     assert report.error == 'injected manifest failure'

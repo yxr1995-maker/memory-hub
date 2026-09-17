@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .indexer import IndexBuild, atomic_rebuild_index
+from .links import build_page_sets
 from .cluster import ManifestEntry, classify_cluster_target, cluster_observations, commit_manifest, load_manifest, render_merge_page, scan_observations
 from .lifecycle import LifecycleReport, PreparedLifecycle, finalize_successor_after_index, prepare_successor_pages, successor_plan
 from .scope import apply_backfill, plan_backfill
@@ -138,6 +139,14 @@ class StageRunner:
 
 
 HUB_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _cluster_page_checker(wiki: Path):
+    """Return an is_page gate so cluster members only link existing pages."""
+    stems, bases = build_page_sets(wiki)
+    def is_page(target: str) -> bool:
+        return bool(stems.get(target.lower()) or bases.get(os.path.basename(target).lower()))
+    return is_page
 
 
 class RunStageRunner(StageRunner):
@@ -263,11 +272,15 @@ class RunStageRunner(StageRunner):
             committed = 0
             written_paths: list[str] = []
             skipped: list[str] = []
+            is_page = _cluster_page_checker(tx.operation.wiki_path)
             for plan in plans:
-                content = render_merge_page(plan)
+                content = render_merge_page(plan, is_page=is_page)
                 rel = f"moc/cluster-{plan.key}.md"
                 target = tx.operation.wiki_path / rel
-                if classify_cluster_target(target, content, manifest.entries.get(plan.key)) != "write":
+                decision = classify_cluster_target(target, content, manifest.entries.get(plan.key))
+                if decision == "idempotent":
+                    continue
+                if decision == "manual":
                     skipped.append(rel)
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -355,6 +368,10 @@ class MaintainStageRunner(StageRunner):
         self.index_swaps = 0
         self.skipped_manual: list[str] = []
 
+    def _record_skipped(self, rel: str) -> None:
+        if rel not in self.skipped_manual:
+            self.skipped_manual.append(rel)
+
     def _target(self, root: Path, path: Path) -> Path:
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
             raise ValueError("maintenance path escapes its root")
@@ -406,14 +423,15 @@ class MaintainStageRunner(StageRunner):
                 self.manifest.entries.update(loaded.entries)
         if tx.operation.auto or tx.operation.mode is Mode.SAFE:
             observations = scan_observations(self.staging, self.manifest)
+            is_page = _cluster_page_checker(wiki)
             for cluster in cluster_observations(observations):
-                content = render_merge_page(cluster)
+                content = render_merge_page(cluster, is_page=is_page)
                 target = self._target(wiki, wiki / "moc" / f"cluster-{cluster.key}.md")
                 decision = classify_cluster_target(target, content, self.manifest.entries.get(cluster.key))
                 if decision == "idempotent":
                     continue
                 if decision == "manual":
-                    self.skipped_manual.append(target.relative_to(wiki).as_posix())
+                    self._record_skipped(target.relative_to(wiki).as_posix())
                     continue
                 header, body = content[4:].split(b"\n---\n", 1)
                 fields = {"scope": "project", "scope_id": cluster.scope_id, "status": "active",
@@ -423,7 +441,7 @@ class MaintainStageRunner(StageRunner):
                 # Title-only similarity is insufficient evidence to retire an old page.
                 # Only identical scope/title/body candidates enter the existing planner.
                 eligible = [p for p in candidates if p.title == page.title and p.body == page.body
-                            and p.frontmatter.get("status", "active") == "active"]
+                            and p.frontmatter.get("status", "active") == "active" and p.path != target]
                 plan = successor_plan(page, eligible)
                 self.plans.append((cluster, plan))
         return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "clusters": len(self.plans), "skipped": list(self.skipped_manual)},
@@ -477,11 +495,15 @@ class MaintainStageRunner(StageRunner):
                 tx.journal.save_before_images([path])
                 path.write_bytes(content)
                 self._record_owned(path, tx)
+            is_page = _cluster_page_checker(wiki)
             for cluster, plan in self.plans:
                 target = self._target(wiki, plan.new_path)
-                content = render_merge_page(cluster)
-                if classify_cluster_target(target, content, self.manifest.entries.get(cluster.key)) != "write":
-                    self.skipped_manual.append(target.relative_to(wiki).as_posix())
+                content = render_merge_page(cluster, is_page=is_page)
+                decision = classify_cluster_target(target, content, self.manifest.entries.get(cluster.key))
+                if decision == "idempotent":
+                    continue
+                if decision == "manual":
+                    self._record_skipped(target.relative_to(wiki).as_posix())
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 temp = target.parent / f".{target.name}.tmp"
