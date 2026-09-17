@@ -223,3 +223,67 @@ def test_maintain_refreshes_stale_auto_page(tmp_path: Path):
     assert "Completely stale body" not in body
     assert "status: active" in body
     assert "deprecated_by" not in body
+
+
+def test_idempotent_backfills_missing_manifest_entry(tmp_path: Path):
+    tx, wiki, data, staging = _run_tx(tmp_path, "run")
+    rows = [{"id": f"lb-{i}", "project_id": "lb-project",
+             "text": "Memory maintenance preserves exact owned changes and isolated indexes item %d." % i,
+             "created_at_epoch": 1788100000 + (86400 if i == 2 else 0)} for i in range(3)]
+    (staging / "observations-20260830-120000.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    key = hashlib.sha256("lb-0\nlb-1\nlb-2".encode()).hexdigest()[:16]
+    rel = f"moc/cluster-{key}.md"
+    first = RunStageRunner(staging)
+    assert first.apply("aggregate", tx).data["clusters"] == 1
+    page = wiki / rel
+    before = page.read_bytes()
+    # Manifest lost: fresh runner, manifest file never finalized.
+    second = RunStageRunner(staging)
+    out2 = second.apply("aggregate", tx)
+    assert out2.ok, out2.message
+    assert out2.data["clusters"] == 0
+    assert out2.data["recovered"] == [rel]
+    assert out2.data["skipped"] == []
+    assert page.read_bytes() == before
+    assert second.index_swap_once_and_finalize(tx).ok
+    entries = json.loads((data / "cluster-manifest.json").read_text())["entries"]
+    assert set(entries) == {key}
+    assert sorted(entries[key]["observation_hashes"]) == sorted(
+        hashlib.sha256(f"lb-{i}".encode()).hexdigest() for i in range(3))
+    third = RunStageRunner(staging)
+    out3 = third.apply("aggregate", tx)
+    assert out3.data["clusters"] == 0
+    assert out3.data["recovered"] == []
+
+
+def test_maintain_backfills_missing_manifest_entry(tmp_path: Path):
+    from datetime import datetime, timezone
+    from scripts.automation_core.cluster import (
+        cluster_observations as _cluster_obs, load_manifest as _load_manifest,
+        render_merge_page as _render, scan_observations as _scan_obs)
+    tx, wiki, data, staging = _run_tx(tmp_path, "maintain")
+    texts = ["Memory maintenance preserves exact owned changes and isolated indexes item %d." % n for n in (1, 2, 3)]
+    members = [ClusterObservation(f"mb-{n}", "p", texts[n - 1],
+                                  1788100000 + (86400 if n == 3 else 0),
+                                  "2026-08-31" if n == 3 else "2026-08-30") for n in (1, 2, 3)]
+    rows = [{"id": m.id, "project_id": "p", "text": m.text, "created_at_epoch": m.created_at_epoch} for m in members]
+    (staging / "observations-20260830-120000.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    key = hashlib.sha256("mb-1\nmb-2\nmb-3".encode()).hexdigest()[:16]
+    rel = f"moc/cluster-{key}.md"
+    scanned = _scan_obs(staging, _load_manifest(data / "cluster-manifest.json"))
+    found = [pl for pl in _cluster_obs(scanned) if pl.key == key]
+    assert len(found) == 1
+    page = wiki / rel
+    page.parent.mkdir(parents=True)
+    page.write_bytes(_render(found[0], now=datetime(2026, 9, 1, tzinfo=timezone.utc)))
+    before = page.read_bytes()
+    runner = MaintainStageRunner(staging=staging)
+    planned = runner.apply("validate", tx)
+    assert planned.ok, planned.message
+    assert planned.data["clusters"] == 0
+    assert planned.data["skipped"] == []
+    assert planned.data["recovered"] == [rel]
+    assert [e.cluster_key for e in runner.pending] == [key]
+    assert sorted(runner.pending[0].observation_hashes) == sorted(
+        hashlib.sha256(m.id.encode()).hexdigest() for m in members)
+    assert page.read_bytes() == before

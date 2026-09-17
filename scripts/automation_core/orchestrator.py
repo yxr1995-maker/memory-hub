@@ -272,6 +272,7 @@ class RunStageRunner(StageRunner):
             committed = 0
             written_paths: list[str] = []
             skipped: list[str] = []
+            recovered: list[str] = []
             is_page = _cluster_page_checker(tx.operation.wiki_path)
             for plan in plans:
                 content = render_merge_page(plan, is_page=is_page)
@@ -279,6 +280,15 @@ class RunStageRunner(StageRunner):
                 target = tx.operation.wiki_path / rel
                 decision = classify_cluster_target(target, content, manifest.entries.get(plan.key))
                 if decision == "idempotent":
+                    if plan.key not in manifest.entries:
+                        # Manifest lost but page stands: re-register consumption
+                        # without touching the wiki file, or staging piles up.
+                        manifest.entries[plan.key] = ManifestEntry(plan.key,
+                            [hashlib.sha256(o.id.encode()).hexdigest() for o in plan.members],
+                            rel, hashlib.sha256(target.read_bytes()).hexdigest(),
+                            tx.operation.operation_id, datetime.now(timezone.utc).isoformat())
+                        self.pending_clusters.append(manifest.entries[plan.key])
+                        recovered.append(rel)
                     continue
                 if decision == "manual":
                     skipped.append(rel)
@@ -291,7 +301,7 @@ class RunStageRunner(StageRunner):
                 committed += 1
                 written_paths.append(rel)
             self.aggregate_paths = tuple(written_paths)
-            return StageOutcome.ok_outcome(message=f"aggregate: {committed} merged pages, {len(skipped)} skipped", data={"clusters": committed, "skipped": skipped})
+            return StageOutcome.ok_outcome(message=f"aggregate: {committed} merged pages, {len(skipped)} skipped, {len(recovered)} recovered", data={"clusters": committed, "skipped": skipped, "recovered": recovered})
         if stage_name == "scope_backfill":
             if not tx.operation.apply:
                 return StageOutcome.ok_outcome(message="scope_backfill: planned only", data={"backfilled": 0})
@@ -367,10 +377,31 @@ class MaintainStageRunner(StageRunner):
         self.manifest_path: Path | None = None
         self.index_swaps = 0
         self.skipped_manual: list[str] = []
+        self.recovered: list[str] = []
 
     def _record_skipped(self, rel: str) -> None:
         if rel not in self.skipped_manual:
             self.skipped_manual.append(rel)
+
+    def _backfill_consumed(self, tx: TransactionContext, cluster: Any, rel: str, target: Path) -> bool:
+        """Re-register manifest consumption for a standing idempotent page.
+
+        Returns True when an entry was backfilled (wiki file untouched).
+        """
+        if cluster.key in self.manifest.entries:
+            return False
+        if any(e.cluster_key == cluster.key for e in self.pending):
+            return False
+        try:
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return False
+        self.pending.append(ManifestEntry(cluster.key,
+            [hashlib.sha256(m.id.encode()).hexdigest() for m in cluster.members],
+            rel, digest, tx.operation.operation_id, datetime.now(timezone.utc).isoformat()))
+        if rel not in self.recovered:
+            self.recovered.append(rel)
+        return True
 
     def _target(self, root: Path, path: Path) -> Path:
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -429,6 +460,7 @@ class MaintainStageRunner(StageRunner):
                 target = self._target(wiki, wiki / "moc" / f"cluster-{cluster.key}.md")
                 decision = classify_cluster_target(target, content, self.manifest.entries.get(cluster.key))
                 if decision == "idempotent":
+                    self._backfill_consumed(tx, cluster, target.relative_to(wiki).as_posix(), target)
                     continue
                 if decision == "manual":
                     self._record_skipped(target.relative_to(wiki).as_posix())
@@ -444,7 +476,7 @@ class MaintainStageRunner(StageRunner):
                             and p.frontmatter.get("status", "active") == "active" and p.path != target]
                 plan = successor_plan(page, eligible)
                 self.plans.append((cluster, plan))
-        return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "clusters": len(self.plans), "skipped": list(self.skipped_manual)},
+        return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "clusters": len(self.plans), "skipped": list(self.skipped_manual), "recovered": list(self.recovered)},
                                        message=f"planned {len(self.repairs)} timestamp repairs, {len(self.plans)} clusters")
 
     def plan(self, stage_name: str, tx: TransactionContext) -> StageOutcome:
@@ -501,6 +533,7 @@ class MaintainStageRunner(StageRunner):
                 content = render_merge_page(cluster, is_page=is_page)
                 decision = classify_cluster_target(target, content, self.manifest.entries.get(cluster.key))
                 if decision == "idempotent":
+                    self._backfill_consumed(tx, cluster, target.relative_to(wiki).as_posix(), target)
                     continue
                 if decision == "manual":
                     self._record_skipped(target.relative_to(wiki).as_posix())
@@ -519,7 +552,7 @@ class MaintainStageRunner(StageRunner):
                     [hashlib.sha256(m.id.encode()).hexdigest() for m in cluster.members],
                     target.relative_to(wiki).as_posix(), self.owned[target.relative_to(wiki).as_posix()],
                     tx.operation.operation_id, datetime.now(timezone.utc).isoformat()))
-            return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "published": len(self.pending), "skipped": list(self.skipped_manual)})
+            return StageOutcome.ok_outcome(data={"repairs": len(self.repairs), "published": len(self.pending), "skipped": list(self.skipped_manual), "recovered": list(self.recovered)})
         if stage_name == "wiki_fixer_report":
             # Read-only inspection: write the report file only, never touch wiki
             # files, never record owned paths, never write the journal.
