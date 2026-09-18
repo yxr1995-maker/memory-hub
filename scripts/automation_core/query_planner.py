@@ -313,7 +313,6 @@ def plan_query(
     # 10s; shorter timeouts show up as 499 client_closed_request noise in the
     # gateway log. 20s covers the observed queueing band; worst case the
     # expansion wait replaces the 1s cancel noise with a slower first search.
-    # ponytail: fixed 20s ceiling, revisit if gateway queuing gets worse
     raw_timeout = os.environ.get("MEMORY_HUB_EXPAND_TIMEOUT", "").strip()
     try:
         expand_timeout = float(raw_timeout) if raw_timeout else 20.0
