@@ -17,6 +17,11 @@ from .schema import normalize_id
 _CREDENTIAL_PATTERN = re.compile(r"(?:Bearers+[A-Za-z0-9._~+/-]+=*|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{32,})")
 _PATH_PATTERN = re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+")
 
+# Expansion circuit-breaker state (process-local; hooks and CLI are
+# short-lived processes, so this mostly protects long-running serve loops).
+_EXPAND_FAILURES = 0
+_EXPAND_OPEN_UNTIL = 0.0
+
 
 @dataclass(frozen=True)
 class SearchRequest:
@@ -217,7 +222,7 @@ class OpenAICompatiblePlanner:
         query_hash: str,
         snippets: Sequence[L0Snippet],
         connect_timeout: float = 0.5,
-        read_timeout: float = 1.0,
+        read_timeout: float = 20.0,
     ) -> tuple[tuple[ExpansionTerm, ...], str | None]:
         if not snippets:
             return (), "empty_l0"
@@ -304,9 +309,57 @@ def plan_query(
 
     proxy_url = os.environ.get("OPENCODEX_URL", "http://127.0.0.1:10100/v1")
     model = os.environ.get("CLAUDE_MEM_EXPAND_MODEL", "sensenova/sensenova-6.8-flash-lite")
+    # SenseNova 6.8 expansion responses range 3-10s with queuing spikes beyond
+    # 10s; shorter timeouts show up as 499 client_closed_request noise in the
+    # gateway log. 20s covers the observed queueing band; worst case the
+    # expansion wait replaces the 1s cancel noise with a slower first search.
+    # ponytail: fixed 20s ceiling, revisit if gateway queuing gets worse
+    raw_timeout = os.environ.get("MEMORY_HUB_EXPAND_TIMEOUT", "").strip()
+    try:
+        expand_timeout = float(raw_timeout) if raw_timeout else 20.0
+    except ValueError:
+        expand_timeout = 20.0
+    # Circuit breaker: after MEMORY_HUB_EXPAND_FAILURE_THRESHOLD consecutive
+    # expansion failures, skip the LLM call for MEMORY_HUB_EXPAND_BREAK_SECONDS
+    # and serve local expansions. Gateway queuing storms otherwise turn every
+    # search into a timeout-length wait plus 499 cancel noise in usage logs.
+    threshold_raw = os.environ.get("MEMORY_HUB_EXPAND_FAILURE_THRESHOLD", "").strip()
+    break_raw = os.environ.get("MEMORY_HUB_EXPAND_BREAK_SECONDS", "").strip()
+    try:
+        failure_threshold = int(threshold_raw) if threshold_raw else 3
+    except ValueError:
+        failure_threshold = 3
+    try:
+        break_seconds = float(break_raw) if break_raw else 120.0
+    except ValueError:
+        break_seconds = 120.0
+    global _EXPAND_FAILURES, _EXPAND_OPEN_UNTIL
+    if _EXPAND_OPEN_UNTIL > time.monotonic():
+        local_terms = local_expand(request.query, snippets, limit=4)
+        plan = QueryPlan(
+            query=request.query,
+            query_hash=query_hash,
+            expansions=local_terms,
+            planner="local" if local_terms else "original-only",
+            fallback_reason="expand_circuit_open",
+            l0_snippets=snippets,
+            latency_ms=round((time.monotonic() - start_time) * 1000, 2),
+        )
+        if audit:
+            audit.finish(plan, 0)
+        return plan
+
     planner_client = OpenAICompatiblePlanner(proxy_url, model, transport=transport)
 
-    llm_expansions, failure_reason = planner_client.expand(request.query, query_hash, snippets)
+    llm_expansions, failure_reason = planner_client.expand(request.query, query_hash, snippets, read_timeout=expand_timeout)
+    if llm_expansions:
+        _EXPAND_FAILURES = 0
+        _EXPAND_OPEN_UNTIL = 0.0
+    else:
+        _EXPAND_FAILURES += 1
+        if failure_threshold > 0 and _EXPAND_FAILURES >= failure_threshold:
+            _EXPAND_FAILURES = 0
+            _EXPAND_OPEN_UNTIL = time.monotonic() + break_seconds
     if llm_expansions:
         plan = QueryPlan(
             query=request.query,

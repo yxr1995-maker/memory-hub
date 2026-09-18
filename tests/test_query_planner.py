@@ -97,6 +97,10 @@ class FixtureContext:
 
 @pytest.fixture
 def fixture() -> FixtureContext:
+    import scripts.automation_core.query_planner as qp
+
+    qp._EXPAND_FAILURES = 0
+    qp._EXPAND_OPEN_UNTIL = 0.0
     return FixtureContext()
 
 
@@ -156,3 +160,42 @@ def test_sanitize_l0_removes_secrets_and_paths() -> None:
     assert "ghp_" not in sanitized
     assert "[REDACTED_SECRET]" in sanitized or "[REDACTED_PATH]" in sanitized
 
+
+def test_expand_timeout_defaults_to_20s_and_env_override(fixture: FixtureContext, monkeypatch: Any) -> None:
+    class RecordingTransport(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.timeouts: list[float] = []
+
+        def post_json(self, url: str, payload: Mapping[str, Any], headers: Mapping[str, str], timeout: float) -> tuple[int, str]:
+            self.timeouts.append(timeout)
+            return super().post_json(url, payload, headers, timeout)
+
+    monkeypatch.delenv("MEMORY_HUB_EXPAND_TIMEOUT", raising=False)
+    transport = RecordingTransport()
+    plan_query(SearchRequest("fixture lifecycle"), fixture.recall, transport, fixture.audit)
+    assert transport.timeouts == [20.0]
+
+    monkeypatch.setenv("MEMORY_HUB_EXPAND_TIMEOUT", "5")
+    transport2 = RecordingTransport()
+    plan_query(SearchRequest("fixture lifecycle"), fixture.recall, transport2, fixture.audit)
+    assert transport2.timeouts == [5.0]
+
+
+def test_expand_circuit_breaker_skips_llm_after_failures(fixture: FixtureContext, monkeypatch: Any) -> None:
+    monkeypatch.delenv("MEMORY_HUB_EXPAND_FAILURE_THRESHOLD", raising=False)
+    monkeypatch.delenv("MEMORY_HUB_EXPAND_BREAK_SECONDS", raising=False)
+    failing = FakeTransport([ReadTimeout(), ReadTimeout(), ReadTimeout(), ReadTimeout()])
+    for _ in range(4):
+        plan_query(SearchRequest("fixture lifecycle"), fixture.recall, failing, fixture.audit)
+    assert failing.calls == 3
+
+    monkeypatch.setenv("MEMORY_HUB_EXPAND_BREAK_SECONDS", "0")
+    import scripts.automation_core.query_planner as qp
+
+    qp._EXPAND_FAILURES = 0
+    qp._EXPAND_OPEN_UNTIL = 0.0
+    recovering = FakeTransport([ReadTimeout(), ReadTimeout(), ReadTimeout(), ReadTimeout()])
+    for _ in range(4):
+        plan_query(SearchRequest("fixture lifecycle"), fixture.recall, recovering, fixture.audit)
+    assert recovering.calls == 4
