@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -19,8 +20,14 @@ _PATH_PATTERN = re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+")
 
 # Expansion circuit-breaker state (process-local; hooks and CLI are
 # short-lived processes, so this mostly protects long-running serve loops).
+# States: "closed" (normal), "open" (skip LLM, serve local), "half-open"
+# (break expired: admit exactly one probe; success closes, failure re-opens
+# immediately). Guarded by _EXPAND_LOCK (serve is ThreadingHTTPServer).
+_EXPAND_STATE = "closed"
 _EXPAND_FAILURES = 0
 _EXPAND_OPEN_UNTIL = 0.0
+_EXPAND_PROBE_IN_FLIGHT = False
+_EXPAND_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,9 @@ class QueryPlan:
     fallback_reason: str | None
     l0_snippets: tuple[L0Snippet, ...]
     latency_ms: float
+    # LLM expansion call itself; 0.0 when skipped (expand off / empty L0 /
+    # circuit open). latency_ms keeps total semantics (includes expand wait).
+    expand_latency_ms: float = 0.0
 
     def public_explain(self, request: SearchRequest | None = None) -> dict[str, object]:
         return {
@@ -108,6 +118,7 @@ class AuditSink:
             "planner": plan.planner,
             "fallback_reason": plan.fallback_reason,
             "latency_ms": plan.latency_ms,
+            "expand_latency_ms": plan.expand_latency_ms,
             "final_hits": final_hits,
         })
 
@@ -332,8 +343,21 @@ def plan_query(
         break_seconds = float(break_raw) if break_raw else 120.0
     except ValueError:
         break_seconds = 120.0
-    global _EXPAND_FAILURES, _EXPAND_OPEN_UNTIL
-    if _EXPAND_OPEN_UNTIL > time.monotonic():
+    global _EXPAND_STATE, _EXPAND_FAILURES, _EXPAND_OPEN_UNTIL, _EXPAND_PROBE_IN_FLIGHT
+    is_probe = False
+    skip_for_open = False
+    with _EXPAND_LOCK:
+        if _EXPAND_STATE == "open" and time.monotonic() >= _EXPAND_OPEN_UNTIL:
+            _EXPAND_STATE = "half-open"
+        if _EXPAND_STATE == "open":
+            skip_for_open = True
+        elif _EXPAND_STATE == "half-open":
+            if _EXPAND_PROBE_IN_FLIGHT:
+                skip_for_open = True
+            else:
+                _EXPAND_PROBE_IN_FLIGHT = True
+                is_probe = True
+    if skip_for_open:
         local_terms = local_expand(request.query, snippets, limit=4)
         plan = QueryPlan(
             query=request.query,
@@ -350,15 +374,33 @@ def plan_query(
 
     planner_client = OpenAICompatiblePlanner(proxy_url, model, transport=transport)
 
-    llm_expansions, failure_reason = planner_client.expand(request.query, query_hash, snippets, read_timeout=expand_timeout)
-    if llm_expansions:
-        _EXPAND_FAILURES = 0
-        _EXPAND_OPEN_UNTIL = 0.0
-    else:
-        _EXPAND_FAILURES += 1
-        if failure_threshold > 0 and _EXPAND_FAILURES >= failure_threshold:
+    expand_start = time.monotonic()
+    try:
+        llm_expansions, failure_reason = planner_client.expand(request.query, query_hash, snippets, read_timeout=expand_timeout)
+    finally:
+        expand_latency_ms = round((time.monotonic() - expand_start) * 1000, 2)
+        if is_probe:
+            with _EXPAND_LOCK:
+                _EXPAND_PROBE_IN_FLIGHT = False
+    with _EXPAND_LOCK:
+        if is_probe:
+            if llm_expansions:
+                _EXPAND_STATE = "closed"
+                _EXPAND_FAILURES = 0
+                _EXPAND_OPEN_UNTIL = 0.0
+            else:
+                _EXPAND_STATE = "open"
+                _EXPAND_OPEN_UNTIL = time.monotonic() + break_seconds
+        elif llm_expansions:
+            _EXPAND_STATE = "closed"
             _EXPAND_FAILURES = 0
-            _EXPAND_OPEN_UNTIL = time.monotonic() + break_seconds
+            _EXPAND_OPEN_UNTIL = 0.0
+        else:
+            _EXPAND_FAILURES += 1
+            if failure_threshold > 0 and _EXPAND_FAILURES >= failure_threshold:
+                _EXPAND_STATE = "open"
+                _EXPAND_FAILURES = 0
+                _EXPAND_OPEN_UNTIL = time.monotonic() + break_seconds
     if llm_expansions:
         plan = QueryPlan(
             query=request.query,
@@ -368,6 +410,7 @@ def plan_query(
             fallback_reason=None,
             l0_snippets=snippets,
             latency_ms=round((time.monotonic() - start_time) * 1000, 2),
+            expand_latency_ms=expand_latency_ms,
         )
     else:
         local_terms = local_expand(request.query, snippets, limit=4)
@@ -379,6 +422,7 @@ def plan_query(
             fallback_reason=failure_reason or "local_fallback",
             l0_snippets=snippets,
             latency_ms=round((time.monotonic() - start_time) * 1000, 2),
+            expand_latency_ms=expand_latency_ms,
         )
 
     if audit:
