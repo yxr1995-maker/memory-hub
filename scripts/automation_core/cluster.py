@@ -209,9 +209,10 @@ def scan_observations(staging: Path, manifest: ClusterManifest) -> tuple[Cluster
                     continue
                 d = json.loads(line)
                 obs_id = str(d.get("id") or "")
-                if not obs_id:
+                dedupe_key = str(d.get("provenance_id") or "") or obs_id
+                if not dedupe_key:
                     continue
-                obs_hash = hashlib.sha256(obs_id.encode()).hexdigest()
+                obs_hash = hashlib.sha256(dedupe_key.encode()).hexdigest()
                 if obs_hash in consumed_hashes:
                     continue
 
@@ -225,13 +226,17 @@ def scan_observations(staging: Path, manifest: ClusterManifest) -> tuple[Cluster
                     continue
                 proj = normalize_id(str(d.get("project_id") or d.get("project")), "default-project")
                 epoch = int(d.get("created_at_epoch", 0))
+                if epoch > 10**12:
+                    epoch //= 1000
+                if epoch > 10**10:
+                    epoch = 0
                 date_str = datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%d") if epoch else "unknown"
 
-                # Duplicate observation ids collapse to one cluster member;
+                # Duplicate observations collapse to one cluster member;
                 # keep the first occurrence deterministically.
-                if obs_id in seen_ids:
+                if dedupe_key in seen_ids:
                     continue
-                seen_ids.add(obs_id)
+                seen_ids.add(dedupe_key)
 
                 results.append(
                     ClusterObservation(

@@ -19,6 +19,37 @@ def test_scan_deduplicates_requires_project_and_masks_secrets(tmp_path):
     assert "/Users/fixture" not in found[0].text
 
 
+def test_scan_dedupe_key_prefers_provenance_id(tmp_path):
+    rows = [
+        {"id": "c100000", "provenance_id": "prov-a", "project_id": "fixture",
+         "text": "memory maintenance note about project context and workflow details.", "created_at_epoch": 1788220800},
+        {"id": "c100000", "provenance_id": "prov-b", "project_id": "fixture",
+         "text": "another memory note about a different topic in the same project scope.", "created_at_epoch": 1788220801},
+        {"id": "c100001", "provenance_id": "prov-a", "project_id": "fixture",
+         "text": "duplicate of the first observation via provenance id.", "created_at_epoch": 1788220802},
+    ]
+    (tmp_path / "observations-20260901-120000.jsonl").write_text("\n".join(json.dumps(x) for x in rows))
+    found = scan_observations(tmp_path, ClusterManifest())
+    assert len(found) == 2
+    assert {o.text[:10] for o in found} == {"memory mai", "another me"}
+
+
+def test_scan_handles_millisecond_epoch(tmp_path):
+    rows = [
+        {"id": "one", "project_id": "fixture",
+         "text": "memory note with a millisecond epoch timestamp that must not crash the scanner.",
+         "created_at_epoch": 1788220800000},
+        {"id": "two", "project_id": "fixture",
+         "text": "memory note with a normal second epoch timestamp for comparison.",
+         "created_at_epoch": 1788220801},
+    ]
+    (tmp_path / "observations-20260901-120000.jsonl").write_text("\n".join(json.dumps(x) for x in rows))
+    found = scan_observations(tmp_path, ClusterManifest())
+    assert len(found) == 2
+    ms_obs = next(o for o in found if o.id == "one")
+    assert ms_obs.created_at_epoch == 1788220800
+
+
 def test_render_escapes_quotes_and_uses_hashed_member_ids(tmp_path):
     rows = [{"id": f"private-observation-id-{n}", "project_id": "fixture",
              "text": "The user's memory maintenance notes preserve consistent project context.",
